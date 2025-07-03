@@ -13,24 +13,47 @@ class InscripcionClase extends Model
     protected $table = 'inscripcion_clase';
 
     protected $fillable = [
-        'id_clase',
         'id_estudiante',
-        'fecha_ingreso',
-        'activo'
+        'id_clase',
+        'fecha_inscripcion',
+        'activo',
+        'notas',
     ];
 
     protected $casts = [
-        'fecha_ingreso' => 'datetime',
-        'activo' => 'boolean'
+        'fecha_inscripcion' => 'datetime',
+        'activo' => 'boolean',
     ];
 
+    /**
+     * Relación con estudiante
+     */
+    public function estudiante()
+    {
+        return $this->belongsTo(Estudiante::class, 'id_estudiante');
+    }
+
+    /**
+     * Relación con clase
+     */
     public function clase()
     {
         return $this->belongsTo(Clase::class, 'id_clase');
     }
 
-    public function estudiante()
+    /**
+     * Scope para inscripciones activas
+     */
+    public function scopeActivas($query)
     {
-        return $this->belongsTo(Estudiante::class, 'id_estudiante');
+        return $query->where('activo', true);
+    }
+
+    /**
+     * Scope para inscripciones inactivas
+     */
+    public function scopeInactivas($query)
+    {
+        return $query->where('activo', false);
     }
 }

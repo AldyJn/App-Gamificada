@@ -82,7 +82,7 @@ class ItemEquipamientoSeeder extends Seeder
                 'nombre' => 'Leyenda Inmortal',
                 'descripcion' => 'Solo para quienes alcanzaron el nivel 100',
                 'tipo_slot' => 'emblem',
-                'rareza' => 'legendario',
+                'rareza' => 'exotico',
                 'nivel_poder' => 1,
                 'precio_tienda' => null,
                 'imagen_url' => '/images/emblems/immortal_legend.jpg',

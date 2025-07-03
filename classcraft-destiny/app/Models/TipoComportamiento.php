@@ -15,24 +15,62 @@ class TipoComportamiento extends Model
     protected $fillable = [
         'nombre',
         'descripcion',
-        'puntos_salud',
-        'puntos_energia',
-        'puntos_luz',
+        'puntos_base',
         'tipo',
         'icono',
-        'afecta_equipo'
+        'color',
+        'activo',
     ];
 
     protected $casts = [
-        'afecta_equipo' => 'boolean'
+        'puntos_base' => 'integer',
+        'activo' => 'boolean',
     ];
 
-    public function esPositivo(): bool
+    /**
+     * Relación con registros de comportamiento
+     */
+    public function registros()
+    {
+        return $this->hasMany(RegistroComportamiento::class, 'id_tipo_comportamiento');
+    }
+
+    /**
+     * Scope para comportamientos positivos
+     */
+    public function scopePositivos($query)
+    {
+        return $query->where('tipo', 'positivo');
+    }
+
+    /**
+     * Scope para comportamientos negativos
+     */
+    public function scopeNegativos($query)
+    {
+        return $query->where('tipo', 'negativo');
+    }
+
+    /**
+     * Scope para comportamientos activos
+     */
+    public function scopeActivos($query)
+    {
+        return $query->where('activo', true);
+    }
+
+    /**
+     * Determinar si es comportamiento positivo
+     */
+    public function esPositivo()
     {
         return $this->tipo === 'positivo';
     }
 
-    public function esNegativo(): bool
+    /**
+     * Determinar si es comportamiento negativo
+     */
+    public function esNegativo()
     {
         return $this->tipo === 'negativo';
     }

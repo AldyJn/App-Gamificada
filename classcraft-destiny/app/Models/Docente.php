@@ -1,6 +1,4 @@
 <?php
-// app/Models/Docente.php
-
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -14,42 +12,68 @@ class Docente extends Model
 
     protected $fillable = [
         'id_usuario',
-        'codigo_docente',
         'especialidad',
-        'años_experiencia',
-        'nivel_guardian',
-        'titulo_especialidad'
+        'biografia',
+        'anos_experiencia',
+        'certificaciones',
     ];
 
     protected $casts = [
-        'años_experiencia' => 'integer',
-        'nivel_guardian' => 'integer'
+        'certificaciones' => 'array',
+        'anos_experiencia' => 'integer',
     ];
 
-    // Relaciones
+    /**
+     * Relación con usuario
+     */
     public function usuario()
     {
         return $this->belongsTo(Usuario::class, 'id_usuario');
     }
 
+    /**
+     * Relación con clases que enseña
+     */
     public function clases()
     {
         return $this->hasMany(Clase::class, 'id_docente');
     }
 
-    // Métodos de utilidad
-    public function clasesActivas()
+    /**
+     * Obtener todas las actividades creadas por el docente
+     */
+    public function actividades()
     {
-        return $this->clases()->where('activo', true)->where('fecha_fin', '>=', now());
+        return $this->hasManyThrough(Actividad::class, Clase::class, 'id_docente', 'id_clase');
     }
 
-    public function totalEstudiantes()
+    /**
+     * Obtener todos los estudiantes del docente
+     */
+    public function estudiantes()
     {
-        return $this->clases()
-            ->whereHas('inscripciones', function($query) {
-                $query->where('activo', true);
-            })
-            ->withCount('inscripciones')
-            ->sum('inscripciones_count');
+        return $this->hasManyThrough(
+            Estudiante::class,
+            InscripcionClase::class,
+            'id_clase',
+            'id',
+            'id',
+            'id_estudiante'
+        )->whereHas('clase', function($q) {
+            $q->where('id_docente', $this->id);
+        });
+    }
+
+    /**
+     * Obtener estadísticas del docente
+     */
+    public function getEstadisticasAttribute()
+    {
+        return [
+            'total_clases' => $this->clases()->count(),
+            'total_estudiantes' => $this->estudiantes()->count(),
+            'total_actividades' => $this->actividades()->count(),
+            'clases_activas' => $this->clases()->where('activa', true)->count(),
+        ];
     }
 }

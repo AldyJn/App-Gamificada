@@ -1,5 +1,5 @@
 <?php
-// app/Models/Usuario.php
+// app/Models/Usuario.php - ACTUALIZACIÓN COMPLETA
 
 namespace App\Models;
 
@@ -17,7 +17,7 @@ class Usuario extends Authenticatable
     protected $fillable = [
         'nombre',
         'apellido',
-        'email',
+        'correo',
         'avatar',
         'contraseña_hash',
         'salt',
@@ -44,16 +44,58 @@ class Usuario extends Authenticatable
         'email_verified_at' => 'datetime',
     ];
 
-    // Relaciones
-    // public function tipoUsuario()
-    // {
-    //     return $this->belongsTo(TipoUsuario::class, 'id_tipo_usuario');
-    // }
+    // ===== MÉTODOS DE AUTENTICACIÓN LARAVEL =====
+    
+    /**
+     * Get the password for the user.
+     */
+    public function getAuthPassword()
+    {
+        return $this->contraseña_hash;
+    }
 
-    // public function estado()
-    // {
-    //     return $this->belongsTo(EstadoUsuario::class, 'id_estado');
-    // }
+    /**
+     * Get the column name for the "remember me" token.
+     */
+    public function getRememberTokenName()
+    {
+        return 'remember_token';
+    }
+
+    /**
+     * Get the identifier that will be stored in the subject claim of the JWT.
+     */
+    public function getAuthIdentifierName()
+    {
+        return 'correo';
+    }
+
+    /**
+     * Get the unique identifier for the user.
+     */
+    public function getAuthIdentifier()
+    {
+        return $this->correo;
+    }
+
+    /**
+     * Get the email attribute for password resets.
+     */
+    public function getEmailForPasswordReset()
+    {
+        return $this->correo;
+    }
+
+    // ===== RELACIONES =====
+    public function tipoUsuario()
+    {
+        return $this->belongsTo(TipoUsuario::class, 'id_tipo_usuario');
+    }
+
+    public function estado()
+    {
+        return $this->belongsTo(EstadoUsuario::class, 'id_estado');
+    }
 
     public function docente()
     {
@@ -65,7 +107,7 @@ class Usuario extends Authenticatable
         return $this->hasOne(Estudiante::class, 'id_usuario');
     }
 
-    // Métodos de utilidad
+    // ===== MÉTODOS DE UTILIDAD =====
     public function esDocente(): bool
     {
         return $this->id_tipo_usuario === 1;
@@ -79,5 +121,10 @@ class Usuario extends Authenticatable
     public function nombreCompleto(): string
     {
         return $this->nombre . ' ' . $this->apellido;
+    }
+
+    public function estaActivo(): bool
+    {
+        return $this->id_estado === 1;
     }
 }

@@ -5,7 +5,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use SimpleSoftwareIO\QrCode\Facades\QrCode;
+use Illuminate\Support\Str;
 
 class Clase extends Model
 {
@@ -16,91 +16,207 @@ class Clase extends Model
     protected $fillable = [
         'nombre',
         'descripcion',
+        'codigo_acceso',
         'id_docente',
+        'materia',
         'grado',
         'seccion',
-        'año_academico',
-        'activo',
-        'codigo_invitacion',
-        'qr_url',
-        'fecha_inicio',
-        'fecha_fin',
-        'tema_visual',
-        'configuracion_gamificacion',
-        'modo_competitivo',
-        'horarios_clase'
+        'ano_escolar',
+        'activa',
+        'configuracion',
+        'imagen_banner',
+        'color_tema',
     ];
 
     protected $casts = [
-        'activo' => 'boolean',
-        'modo_competitivo' => 'boolean',
-        'fecha_inicio' => 'date',
-        'fecha_fin' => 'date',
-        'configuracion_gamificacion' => 'array',
-        'horarios_clase' => 'array'
+        'activa' => 'boolean',
+        'configuracion' => 'array',
     ];
 
-    // Relaciones
+    /**
+     * Generar código de acceso automáticamente
+     */
+    protected static function boot()
+    {
+        parent::boot();
+        
+        static::creating(function ($clase) {
+            if (empty($clase->codigo_acceso)) {
+                $clase->codigo_acceso = static::generarCodigoUnico();
+            }
+        });
+    }
+
+    /**
+     * Generar código único de 6 caracteres
+     */
+    public static function generarCodigoUnico()
+    {
+        do {
+            $codigo = strtoupper(Str::random(6));
+        } while (static::where('codigo_acceso', $codigo)->exists());
+        
+        return $codigo;
+    }
+
+    /**
+     * Relación con docente
+     */
     public function docente()
     {
         return $this->belongsTo(Docente::class, 'id_docente');
     }
 
-    public function inscripciones()
-    {
-        return $this->hasMany(InscripcionClase::class, 'id_clase');
-    }
-
+    /**
+     * Relación muchos a muchos con estudiantes
+     */
     public function estudiantes()
     {
-        return $this->belongsToMany(Estudiante::class, 'inscripcion_clase', 'id_clase', 'id_estudiante')
-                    ->wherePivot('activo', true);
+        return $this->belongsToMany(
+            Estudiante::class,
+            'inscripcion_clase',
+            'id_clase',
+            'id_estudiante'
+        )->withPivot(['fecha_inscripcion', 'activo', 'notas'])
+         ->withTimestamps();
     }
 
+    /**
+     * Relación con actividades
+     */
+    public function actividades()
+    {
+        return $this->hasMany(Actividad::class, 'id_clase');
+    }
+
+    /**
+     * Relación con personajes
+     */
     public function personajes()
     {
         return $this->hasMany(Personaje::class, 'id_clase');
     }
 
-    // Métodos de utilidad
-    public function estaActiva(): bool
+    /**
+     * Relación con misiones
+     */
+    public function misiones()
     {
-        $hoy = now()->toDateString();
-        return $this->activo && 
-               $hoy >= $this->fecha_inicio && 
-               $hoy <= $this->fecha_fin;
+        return $this->hasMany(Mision::class, 'id_clase');
     }
 
-    public function totalEstudiantes(): int
+    /**
+     * Relación con configuraciones
+     */
+    public function configuraciones()
     {
-        return $this->inscripciones()->where('activo', true)->count();
+        return $this->hasMany(ConfiguracionClase::class, 'id_clase');
     }
 
-    public function generarCodigoInvitacion(): string
+    /**
+     * Relación con items de tienda
+     */
+    public function itemsTienda()
     {
-        do {
-            $codigo = strtoupper(substr(str_shuffle('ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'), 0, 8));
-        } while (self::where('codigo_invitacion', $codigo)->exists());
-
-        $this->update(['codigo_invitacion' => $codigo]);
-        return $codigo;
+        return $this->hasMany(ItemTienda::class, 'id_clase');
     }
 
-    public function generarQR(): string
+    /**
+     * Obtener estudiantes activos de la clase
+     */
+    public function estudiantesActivos()
     {
-        $url = route('estudiante.unirse-clase', $this->codigo_invitacion);
-        $qrPath = 'qr_codes/' . $this->codigo_invitacion . '.png';
+        return $this->estudiantes()->wherePivot('activo', true);
+    }
+
+    /**
+     * Obtener configuración específica
+     */
+    public function obtenerConfiguracion($clave, $defecto = null)
+    {
+        $config = $this->configuraciones()
+            ->where('clave', $clave)
+            ->first();
+            
+        if ($config) {
+            // Convertir según el tipo
+            switch ($config->tipo) {
+                case 'boolean':
+                    return filter_var($config->valor, FILTER_VALIDATE_BOOLEAN);
+                case 'integer':
+                    return (int) $config->valor;
+                case 'decimal':
+                    return (float) $config->valor;
+                case 'json':
+                    return json_decode($config->valor, true);
+                default:
+                    return $config->valor;
+            }
+        }
         
-        QrCode::format('png')
-              ->size(300)
-              ->generate($url, storage_path('app/public/' . $qrPath));
-        
-        $this->update(['qr_url' => '/storage/' . $qrPath]);
-        return $this->qr_url;
+        return $defecto;
     }
 
-    public function estudianteAleatorio()
+    /**
+     * Establecer configuración
+     */
+    public function establecerConfiguracion($clave, $valor, $descripcion = null)
     {
-        return $this->estudiantes()->inRandomOrder()->first();
+        $tipo = $this->determinarTipoValor($valor);
+        $valorString = is_array($valor) ? json_encode($valor) : (string) $valor;
+        
+        return $this->configuraciones()->updateOrCreate(
+            ['clave' => $clave],
+            [
+                'valor' => $valorString,
+                'tipo' => $tipo,
+                'descripcion' => $descripcion,
+            ]
+        );
+    }
+
+    /**
+     * Determinar tipo de valor para configuración
+     */
+    private function determinarTipoValor($valor)
+    {
+        if (is_bool($valor)) return 'boolean';
+        if (is_int($valor)) return 'integer';
+        if (is_float($valor)) return 'decimal';
+        if (is_array($valor)) return 'json';
+        return 'string';
+    }
+
+    /**
+     * Scope para clases activas
+     */
+    public function scopeActivas($query)
+    {
+        return $query->where('activa', true);
+    }
+
+    /**
+     * Scope para clases por docente
+     */
+    public function scopePorDocente($query, $docenteId)
+    {
+        return $query->where('id_docente', $docenteId);
+    }
+
+    /**
+     * Obtener estadísticas de la clase
+     */
+    public function getEstadisticasAttribute()
+    {
+        return [
+            'total_estudiantes' => $this->estudiantesActivos()->count(),
+            'total_actividades' => $this->actividades()->count(),
+            'total_misiones' => $this->misiones()->count(),
+            'actividades_completadas' => $this->actividades()
+                ->whereHas('entregas', function($q) {
+                    $q->whereNotNull('fecha_entrega');
+                })->count(),
+            'promedio_nivel' => $this->personajes()->avg('nivel') ?? 1,
+        ];
     }
 }
