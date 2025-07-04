@@ -1,314 +1,366 @@
 <?php
-
+// app/Http/Controllers/ClaseController.php
 namespace App\Http\Controllers;
 
 use App\Models\Clase;
-use App\Models\Usuario;
+use App\Models\Estudiante;
+use App\Models\InscripcionClase;
+use App\Models\ClaseRpg;
+use App\Models\Personaje;
 use Illuminate\Http\Request;
-use Inertia\Inertia;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use Carbon\Carbon;
+use Inertia\Inertia;
 
 class ClaseController extends Controller
 {
     public function index()
     {
-        $user = auth()->user();
+        $user = Auth::user();
         
-        // Si es docente, mostrar sus clases
         if ($user->esDocente()) {
-            $clases = Clase::where('docente_id', $user->id)
-                ->withCount(['estudiantes', 'actividades'])
+            // Mostrar clases del docente
+            $clases = Clase::where('id_docente', $user->docente->id)
+                ->withCount(['estudiantes as estudiantes_count' => function($query) {
+                    $query->where('inscripcion_clase.activo', true);
+                }])
+                ->with(['inscripciones' => function($query) {
+                    $query->where('activo', true);
+                }])
                 ->orderBy('created_at', 'desc')
-                ->get();
+                ->get()
+                ->map(function($clase) {
+                    return [
+                        'id' => $clase->id,
+                        'nombre' => $clase->nombre,
+                        'descripcion' => $clase->descripcion,
+                        'codigo_invitacion' => $clase->codigo_invitacion,
+                        'grado' => $clase->grado,
+                        'seccion' => $clase->seccion,
+                        'estudiantes_count' => $clase->estudiantes_count,
+                        'activo' => $clase->activo,
+                        'fecha_inicio' => $clase->fecha_inicio,
+                        'fecha_fin' => $clase->fecha_fin,
+                        'created_at' => $clase->created_at
+                    ];
+                });
                 
-            return Inertia::render('Clases/Index', [
-                'clases' => $clases
+            return Inertia::render('Dashboard/Profesor', [
+                'clases' => [
+                    'data' => $clases
+                ],
+                'estadisticas' => [
+                    'clases_activas' => $clases->where('activo', true)->count(),
+                    'total_estudiantes' => $clases->sum('estudiantes_count'),
+                    'promedio_estudiantes' => $clases->avg('estudiantes_count') ?? 0
+                ]
+            ]);
+        } else {
+            // Mostrar clases del estudiante
+            $clases = $user->estudiante->clases()
+                ->withPivot('fecha_ingreso', 'activo')
+                ->with(['docente.usuario', 'personajes' => function($query) use ($user) {
+                    $query->where('id_estudiante', $user->estudiante->id);
+                }])
+                ->orderBy('inscripcion_clase.created_at', 'desc')
+                ->get()
+                ->map(function($clase) {
+                    $personaje = $clase->personajes->first();
+                    return [
+                        'clase' => [
+                            'id' => $clase->id,
+                            'nombre' => $clase->nombre,
+                            'descripcion' => $clase->descripcion,
+                            'grado' => $clase->grado,
+                            'seccion' => $clase->seccion
+                        ],
+                        'docente' => $clase->docente->usuario->nombre,
+                        'personaje' => $personaje ? [
+                            'id' => $personaje->id,
+                            'nombre' => $personaje->nombre,
+                            'nivel' => $personaje->nivel,
+                            'experiencia' => $personaje->experiencia,
+                            'imagen_perfil' => $personaje->imagen_perfil
+                        ] : null,
+                        'fecha_ingreso' => $clase->pivot->fecha_ingreso,
+                        'activo' => $clase->pivot->activo
+                    ];
+                });
+                
+            return Inertia::render('Dashboard/Estudiante', [
+                'clases' => $clases,
+                'estadisticas' => [
+                    'clases_activas' => $clases->where('clase.pivot.activo', true)->count(),
+                    'personajes_creados' => $clases->whereNotNull('personaje')->count()
+                ]
             ]);
         }
-        
-        // Si es estudiante, mostrar clases en las que está inscrito
-        $clases = $user->clases()
-            ->withCount(['estudiantes', 'actividades'])
-            ->with('docente:id,nombre,correo')
-            ->orderBy('created_at', 'desc')
-            ->get();
-            
-        return Inertia::render('Clases/IndexEstudiante', [
-            'clases' => $clases
-        ]);
     }
 
     public function create()
     {
         // Solo docentes pueden crear clases
-        if (!auth()->user()->esDocente()) {
-            return redirect()->route('dashboard')->with('error', 'No tienes permisos para crear clases');
-        }
+        abort_unless(Auth::user()->esDocente(), 403);
         
-        return Inertia::render('Clases/Create');
+        $clasesRpg = ClaseRpg::where('activo', true)->get();
+        
+        return Inertia::render('Clases/Create', [
+            'clasesRpg' => $clasesRpg
+        ]);
     }
 
     public function store(Request $request)
     {
-        // Validación
-        $validated = $request->validate([
-            'nombre' => 'required|string|max:255',
-            'descripcion' => 'nullable|string|max:1000',
-            'fecha_inicio' => 'required|date|after_or_equal:today',
+        abort_unless(Auth::user()->esDocente(), 403);
+        
+        $request->validate([
+            'nombre' => 'required|string|max:100',
+            'descripcion' => 'nullable|string|max:500',
+            'grado' => 'required|string|max:10',
+            'seccion' => 'required|string|max:10',
+            'fecha_inicio' => 'required|date',
             'fecha_fin' => 'required|date|after:fecha_inicio',
-            'codigo' => 'nullable|string|max:10|unique:clases,codigo',
-            'permitir_inscripcion' => 'boolean',
-            'notificar_actividades' => 'boolean'
         ]);
 
-        // Generar código si no se proporcionó
-        if (!$validated['codigo']) {
-            $validated['codigo'] = $this->generarCodigoUnico();
+        try {
+            DB::beginTransaction();
+            
+            $clase = Clase::create([
+                'nombre' => $request->nombre,
+                'descripcion' => $request->descripcion,
+                'id_docente' => Auth::user()->docente->id,
+                'grado' => $request->grado,
+                'seccion' => $request->seccion,
+                'año_academico' => date('Y'),
+                'fecha_inicio' => $request->fecha_inicio,
+                'fecha_fin' => $request->fecha_fin,
+                'activo' => true
+            ]);
+
+            DB::commit();
+            
+            return redirect()->route('dashboard')
+                ->with('success', 'Clase creada exitosamente. Código de invitación: ' . $clase->codigo_invitacion);
+                
+        } catch (\Exception $e) {
+            DB::rollback();
+            return back()->withErrors(['error' => 'Error al crear la clase: ' . $e->getMessage()]);
         }
-
-        // Crear la clase
-        $clase = Clase::create([
-            'nombre' => $validated['nombre'],
-            'descripcion' => $validated['descripcion'],
-            'fecha_inicio' => $validated['fecha_inicio'],
-            'fecha_fin' => $validated['fecha_fin'],
-            'codigo' => strtoupper($validated['codigo']),
-            'docente_id' => auth()->id(),
-            'permitir_inscripcion' => $validated['permitir_inscripcion'] ?? true,
-            'notificar_actividades' => $validated['notificar_actividades'] ?? true,
-            'activa' => true
-        ]);
-
-        return redirect()->route('clases.show', $clase->id)
-            ->with('success', 'Clase creada exitosamente');
     }
 
     public function show(Clase $clase)
     {
+        $user = Auth::user();
+        
         // Verificar acceso
-        if (!$this->puedeAccederClase($clase)) {
-            return redirect()->route('dashboard')->with('error', 'No tienes acceso a esta clase');
+        if ($user->esDocente()) {
+            abort_unless($clase->id_docente === $user->docente->id, 403);
+            
+            // Cargar estudiantes con sus personajes
+            $estudiantes = $clase->estudiantes()
+                ->with(['usuario', 'personajes' => function($query) use ($clase) {
+                    $query->where('id_clase', $clase->id)
+                        ->with('claseRpg');
+                }])
+                ->wherePivot('activo', true)
+                ->get()
+                ->map(function($estudiante) {
+                    $personaje = $estudiante->personajes->first();
+                    return [
+                        'id' => $estudiante->id,
+                        'nombre' => $estudiante->usuario->nombre,
+                        'correo' => $estudiante->usuario->correo,
+                        'codigo_estudiante' => $estudiante->codigo_estudiante,
+                        'personaje' => $personaje ? [
+                            'nombre' => $personaje->nombre,
+                            'nivel' => $personaje->nivel,
+                            'clase_rpg' => $personaje->claseRpg->nombre,
+                            'avatar_base' => $personaje->avatar_base
+                        ] : null
+                    ];
+                });
+            
+            return Inertia::render('Clases/Show', [
+                'clase' => $clase,
+                'estudiantes' => $estudiantes,
+                'puede_seleccionar' => $estudiantes->count() > 0
+            ]);
+        } else {
+            $inscripcion = InscripcionClase::where('id_clase', $clase->id)
+                ->where('id_estudiante', $user->estudiante->id)
+                ->where('activo', true)
+                ->first();
+            abort_unless($inscripcion, 403);
+            
+            $personaje = Personaje::where('id_clase', $clase->id)
+                ->where('id_estudiante', $user->estudiante->id)
+                ->with('claseRpg')
+                ->first();
+            
+            return Inertia::render('Clases/ShowEstudiante', [
+                'clase' => $clase->load('docente.usuario'),
+                'mi_personaje' => $personaje,
+                'salon_virtual' => [
+                    'url' => route('salon.virtual', $clase->id),
+                    'activo' => true
+                ]
+            ]);
         }
+    }
 
-        // Cargar relaciones
-        $clase->load([
-            'docente:id,nombre,correo',
-            'estudiantes' => function($query) {
-                $query->select('usuarios.id', 'usuarios.nombre', 'usuarios.correo')
-                      ->withPivot('fecha_inscripcion', 'activo');
-            },
-            'actividades' => function($query) {
-                $query->orderBy('fecha_limite', 'desc')->take(5);
-            }
-        ]);
-
-        return Inertia::render('Clases/Show', [
-            'clase' => $clase,
-            'estudiantes' => $clase->estudiantes,
-            'actividades' => $clase->actividades
+    // Método para que estudiantes se unan a clases
+    public function showUnirse()
+    {
+        abort_unless(Auth::user()->esEstudiante(), 403);
+        
+        $clasesRpg = ClaseRpg::where('activo', true)->get();
+        
+        return Inertia::render('Clases/Unirse', [
+            'clasesRpg' => $clasesRpg
         ]);
     }
 
-    public function edit(Clase $clase)
+    public function unirse(Request $request)
     {
-        // Solo el docente puede editar
-        if (!auth()->user()->esDocente() || $clase->docente_id !== auth()->id()) {
-            return redirect()->route('dashboard')->with('error', 'No tienes permisos para editar esta clase');
+        abort_unless(Auth::user()->esEstudiante(), 403);
+        
+        $request->validate([
+            'codigo_invitacion' => 'required|string|size:6',
+            'personaje' => 'required|array',
+            'personaje.nombre' => 'required|string|max:50',
+            'personaje.id_clase_rpg' => 'required|exists:clase_rpg,id'
+        ]);
+
+        $clase = Clase::where('codigo_invitacion', strtoupper($request->codigo_invitacion))
+            ->where('activo', true)
+            ->first();
+
+        if (!$clase) {
+            return back()->withErrors(['codigo_invitacion' => 'Código de invitación inválido o clase no activa.']);
         }
 
-        return Inertia::render('Clases/Edit', [
+        $estudiante = Auth::user()->estudiante;
+        
+        // Verificar si ya está inscrito
+        $inscripcionExistente = InscripcionClase::where('id_clase', $clase->id)
+            ->where('id_estudiante', $estudiante->id)
+            ->first();
+
+        if ($inscripcionExistente) {
+            if ($inscripcionExistente->activo) {
+                return back()->withErrors(['codigo_invitacion' => 'Ya estás inscrito en esta clase.']);
+            } else {
+                // Reactivar inscripción
+                $inscripcionExistente->update(['activo' => true]);
+            }
+        } else {
+            try {
+                DB::beginTransaction();
+                
+                // Crear nueva inscripción
+                InscripcionClase::create([
+                    'id_clase' => $clase->id,
+                    'id_estudiante' => $estudiante->id,
+                    'fecha_ingreso' => now(),
+                    'activo' => true
+                ]);
+                
+                DB::commit();
+            } catch (\Exception $e) {
+                DB::rollback();
+                return back()->withErrors(['error' => 'Error al unirse a la clase.']);
+            }
+        }
+        
+        // Crear personaje si no existe
+        $personajeExistente = Personaje::where('id_clase', $clase->id)
+            ->where('id_estudiante', $estudiante->id)
+            ->first();
+            
+        if (!$personajeExistente) {
+            try {
+                DB::beginTransaction();
+                
+                Personaje::create([
+                    'id_estudiante' => $estudiante->id,
+                    'id_clase' => $clase->id,
+                    'id_clase_rpg' => $request->personaje['id_clase_rpg'],
+                    'nombre' => $request->personaje['nombre'],
+                    'nivel' => 1,
+                    'experiencia' => 0,
+                    'puntos_vida' => 100,
+                    'puntos_mana' => 100,
+                    'avatar_base' => 'default'
+                ]);
+                
+                DB::commit();
+            } catch (\Exception $e) {
+                DB::rollback();
+                return back()->withErrors(['error' => 'Error al crear el personaje.']);
+            }
+        }
+        
+        return redirect()->route('salon.virtual', $clase->id)
+            ->with('success', 'Te has unido exitosamente a la clase: ' . $clase->nombre);
+    }
+
+    // API para verificar código de invitación
+    public function verificarCodigo(Request $request)
+    {
+        $request->validate([
+            'codigo' => 'required|string|size:6'
+        ]);
+
+        $clase = Clase::where('codigo_invitacion', strtoupper($request->codigo))
+            ->where('activo', true)
+            ->select('id', 'nombre', 'descripcion', 'grado', 'seccion')
+            ->first();
+
+        if (!$clase) {
+            return response()->json(['valido' => false]);
+        }
+
+        return response()->json([
+            'valido' => true,
             'clase' => $clase
         ]);
     }
 
-    public function update(Request $request, Clase $clase)
+    // Método para selección aleatoria de estudiantes
+    public function seleccionarAleatorio(Clase $clase)
     {
-        // Verificar permisos
-        if (!auth()->user()->esDocente() || $clase->docente_id !== auth()->id()) {
-            return redirect()->route('dashboard')->with('error', 'No tienes permisos para editar esta clase');
-        }
-
-        // Validación
-        $validated = $request->validate([
-            'nombre' => 'required|string|max:255',
-            'descripcion' => 'nullable|string|max:1000',
-            'fecha_inicio' => 'required|date',
-            'fecha_fin' => 'required|date|after:fecha_inicio',
-            'codigo' => 'nullable|string|max:10|unique:clases,codigo,' . $clase->id,
-            'permitir_inscripcion' => 'boolean',
-            'notificar_actividades' => 'boolean',
-            'activa' => 'boolean'
-        ]);
-
-        // Actualizar
-        $clase->update($validated);
-
-        return redirect()->route('clases.show', $clase->id)
-            ->with('success', 'Clase actualizada exitosamente');
-    }
-
-    public function destroy(Clase $clase)
-    {
-        // Solo el docente puede eliminar
-        if (!auth()->user()->esDocente() || $clase->docente_id !== auth()->id()) {
-            return redirect()->route('dashboard')->with('error', 'No tienes permisos para eliminar esta clase');
-        }
-
-        $clase->delete();
-
-        return redirect()->route('clases.index')
-            ->with('success', 'Clase eliminada exitosamente');
-    }
-
-    // Métodos específicos para funcionalidad del profesor
-
-    public function agregarEstudiante(Request $request, Clase $clase)
-    {
-        // Verificar permisos
-        if (!$this->puedeGestionarClase($clase)) {
-            return response()->json(['error' => 'No tienes permisos'], 403);
-        }
-
-        $request->validate([
-            'estudiante_id' => 'required|exists:usuarios,id'
-        ]);
-
-        $estudiante = Usuario::find($request->estudiante_id);
+        abort_unless(Auth::user()->esDocente(), 403);
+        abort_unless($clase->id_docente === Auth::user()->docente->id, 403);
         
-        // Verificar que sea estudiante
-        if (!$estudiante->esEstudiante()) {
-            return response()->json(['error' => 'El usuario no es un estudiante'], 400);
-        }
-
-        // Verificar si ya está inscrito
-        if ($clase->estudiantes()->where('usuario_id', $estudiante->id)->exists()) {
-            return response()->json(['error' => 'El estudiante ya está inscrito'], 400);
-        }
-
-        // Agregar estudiante
-        $clase->estudiantes()->attach($estudiante->id, [
-            'fecha_inscripcion' => now(),
-            'activo' => true
-        ]);
-
-        return redirect()->back()->with('success', 'Estudiante agregado exitosamente');
-    }
-
-    public function removerEstudiante(Clase $clase, Usuario $estudiante)
-    {
-        // Verificar permisos
-        if (!$this->puedeGestionarClase($clase)) {
-            return redirect()->back()->with('error', 'No tienes permisos');
-        }
-
-        // Remover estudiante
-        $clase->estudiantes()->detach($estudiante->id);
-
-        return redirect()->back()->with('success', 'Estudiante removido exitosamente');
-    }
-
-    public function estudianteAleatorio(Clase $clase)
-    {
-        // Verificar permisos
-        if (!$this->puedeGestionarClase($clase)) {
-            return response()->json(['error' => 'No tienes permisos'], 403);
-        }
-
-        $estudiantes = $clase->estudiantes()->where('activo', true)->get();
-
+        $estudiantes = $clase->estudiantes()
+            ->with(['usuario', 'personajes' => function($query) use ($clase) {
+                $query->where('id_clase', $clase->id)->with('claseRpg');
+            }])
+            ->wherePivot('activo', true)
+            ->get();
+            
         if ($estudiantes->isEmpty()) {
-            return response()->json(['error' => 'No hay estudiantes activos en la clase'], 400);
+            return response()->json([
+                'error' => 'No hay estudiantes en esta clase'
+            ], 404);
         }
-
+        
         $estudianteAleatorio = $estudiantes->random();
-
+        $personaje = $estudianteAleatorio->personajes->first();
+        
         return response()->json([
-            'estudiante' => $estudianteAleatorio
+            'estudiante' => [
+                'id' => $estudianteAleatorio->id,
+                'nombre' => $estudianteAleatorio->usuario->nombre,
+                'correo' => $estudianteAleatorio->usuario->correo,
+                'personaje' => $personaje ? [
+                    'nombre' => $personaje->nombre,
+                    'nivel' => $personaje->nivel,
+                    'clase_rpg' => $personaje->claseRpg->nombre,
+                    'avatar' => $personaje->avatar_base
+                ] : null
+            ]
         ]);
-    }
-
-    public function unirse()
-    {
-        // Solo estudiantes pueden unirse
-        if (!auth()->user()->esEstudiante()) {
-            return redirect()->route('dashboard')->with('error', 'Solo los estudiantes pueden unirse a clases');
-        }
-
-        return Inertia::render('Clases/Unirse');
-    }
-
-    public function procesarUnion(Request $request)
-    {
-        $request->validate([
-            'codigo' => 'required|string|max:10'
-        ]);
-
-        $clase = Clase::where('codigo', strtoupper($request->codigo))
-            ->where('activa', true)
-            ->first();
-
-        if (!$clase) {
-            return redirect()->back()->with('error', 'Código de clase no válido');
-        }
-
-        // Verificar si ya está inscrito
-        if ($clase->estudiantes()->where('usuario_id', auth()->id())->exists()) {
-            return redirect()->route('clases.show', $clase->id)
-                ->with('info', 'Ya estás inscrito en esta clase');
-        }
-
-        // Verificar si permite inscripción
-        if (!$clase->permitir_inscripcion) {
-            return redirect()->back()->with('error', 'Esta clase no permite inscripción libre');
-        }
-
-        // Verificar fechas
-        if (Carbon::parse((string)$clase->fecha_fin)->isPast()) {
-            return redirect()->back()->with('error', 'Esta clase ya ha finalizado');
-        }
-
-        // Inscribir estudiante
-        $clase->estudiantes()->attach(auth()->id(), [
-            'fecha_inscripcion' => now(),
-            'activo' => true
-        ]);
-
-        return redirect()->route('clases.show', $clase->id)
-            ->with('success', 'Te has unido a la clase exitosamente');
-    }
-
-    // Métodos auxiliares
-
-    private function generarCodigoUnico()
-    {
-        do {
-            $codigo = strtoupper(Str::random(6));
-        } while (Clase::where('codigo', $codigo)->exists());
-
-        return $codigo;
-    }
-
-    private function puedeAccederClase(Clase $clase)
-    {
-        $user = auth()->user();
-        
-        // Si es docente y es propietario
-        if ($user->esDocente() && $clase->docente_id === $user->id) {
-            return true;
-        }
-        
-        // Si es estudiante y está inscrito
-        if ($user->esEstudiante() && $clase->estudiantes()->where('usuario_id', $user->id)->exists()) {
-            return true;
-        }
-        
-        return false;
-    }
-
-    private function puedeGestionarClase(Clase $clase)
-    {
-        $user = auth()->user();
-        return $user->esDocente() && $clase->docente_id === $user->id;
     }
 }
