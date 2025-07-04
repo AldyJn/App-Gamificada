@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\ProfesorDashboardController;
+use App\Http\Controllers\EstudianteInscripcionController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\Auth\AuthController;
 use Inertia\Inertia;
@@ -21,36 +22,24 @@ Route::get('/', function () {
 })->name('welcome');
 
 // ==========================================
-// AUTENTICACIÓN - RUTAS WEB COMPLETAS
+// AUTENTICACIÓN
 // ==========================================
 Route::middleware('guest')->group(function () {
-    // Login
     Route::get('/login', [AuthController::class, 'showLoginForm'])->name('login');
-    Route::post('/login', [AuthController::class, 'login'])
-         ->middleware('throttle:5,1');
-    
-    // Registro
+    Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:5,1');
     Route::get('/register', [AuthController::class, 'showRegisterForm'])->name('register');
-    Route::post('/register', [AuthController::class, 'register'])
-         ->middleware('throttle:3,1');
-    
-    // Verificar email (para AJAX)
+    Route::post('/register', [AuthController::class, 'register'])->middleware('throttle:3,1');
     Route::post('/auth/check-email', [AuthController::class, 'checkEmail']);
 });
 
-// Logout
-Route::post('/logout', [AuthController::class, 'logout'])
-    ->middleware('auth')
-    ->name('logout');
+Route::post('/logout', [AuthController::class, 'logout'])->middleware('auth')->name('logout');
 
 // ==========================================
 // RUTAS PROTEGIDAS POR AUTENTICACIÓN
 // ==========================================
 Route::middleware(['auth'])->group(function () {
     
-    // ==========================================
-    // DASHBOARD PRINCIPAL - SIN REDIRECCIONES
-    // ==========================================
+    // Dashboard principal
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
 
     // ==========================================
@@ -66,11 +55,25 @@ Route::middleware(['auth'])->group(function () {
             // Crear clase
             Route::post('/', [ProfesorDashboardController::class, 'crearClase'])->name('crear');
             
-            // Ver clase específica
-            Route::get('/{clase}', [ProfesorDashboardController::class, 'verClase'])->name('ver');
+            // Ver clase específica - NOTA: es "clase", no "clases"
+            Route::get('/{clase}', [ProfesorDashboardController::class, 'verClase'])
+                ->name('ver')
+                ->middleware('clase.access');
+            
+            // Agregar estudiante a clase
+            Route::post('/{clase}/agregar-estudiante', [ProfesorDashboardController::class, 'agregarEstudiante'])
+                ->name('agregar-estudiante')
+                ->middleware('clase.access');
             
             // Selección aleatoria de estudiantes
-            Route::post('/{clase}/seleccionar-aleatorio', [ProfesorDashboardController::class, 'seleccionarEstudianteAleatorio'])->name('seleccionar-aleatorio');
+            Route::post('/{clase}/seleccionar-aleatorio', [ProfesorDashboardController::class, 'seleccionarEstudianteAleatorio'])
+                ->name('seleccionar-aleatorio')
+                ->middleware('clase.access');
+                
+            // Regenerar código de clase
+            Route::post('/{clase}/regenerar-codigo', [ProfesorDashboardController::class, 'regenerarCodigo'])
+                ->name('regenerar-codigo')
+                ->middleware('clase.access');
         });
     });
 
@@ -79,7 +82,10 @@ Route::middleware(['auth'])->group(function () {
     // ==========================================
     Route::prefix('estudiantes')->name('estudiantes.')->middleware('user.type:estudiante')->group(function () {
         
-        // Perfil del estudiante (SIN REDIRECCIONES)
+        // Dashboard del estudiante
+        Route::get('/', [EstudianteInscripcionController::class, 'dashboard'])->name('dashboard');
+        
+        // Ver perfil del estudiante
         Route::get('/perfil', function() {
             return Inertia::render('Estudiantes/Perfil', [
                 'estudiante' => [
@@ -90,13 +96,15 @@ Route::middleware(['auth'])->group(function () {
             ]);
         })->name('perfil');
         
-        Route::get('/mis-clases', function() {
-            return Inertia::render('Estudiantes/MisClases', [
-                'clases' => [],
-                'mensaje' => 'Funcionalidad en desarrollo'
-            ]);
-        })->name('mis-clases');
+        // Mis clases
+        Route::get('/mis-clases', [EstudianteInscripcionController::class, 'dashboard'])->name('mis-clases');
         
+        // Ver clase específica - NOTA: es "clase", no "clases"
+        Route::get('/clases/{clase}', [EstudianteInscripcionController::class, 'verClase'])
+            ->name('clases.ver')
+            ->middleware('clase.access');
+        
+        // Progreso del estudiante
         Route::get('/progreso', function() {
             return Inertia::render('Estudiantes/Progreso', [
                 'progreso' => [],
@@ -106,7 +114,22 @@ Route::middleware(['auth'])->group(function () {
     });
 
     // ==========================================
-    // PERFIL GENERAL - SIN REDIRECCIONES
+    // RUTAS DE CLASES GENERALES
+    // ==========================================
+    Route::prefix('clases')->name('clases.')->group(function () {
+        // Unirse a clase (para estudiantes)
+        Route::post('/unirse', [EstudianteInscripcionController::class, 'unirseAClase'])
+            ->name('unirse')
+            ->middleware('user.type:estudiante');
+            
+        // Salir de clase (para estudiantes)
+        Route::post('/{clase}/salir', [EstudianteInscripcionController::class, 'salirDeClase'])
+            ->name('salir')
+            ->middleware('user.type:estudiante');
+    });
+
+    // ==========================================
+    // PERFIL GENERAL
     // ==========================================
     Route::get('/perfil', function() {
         $user = auth()->user();
@@ -114,7 +137,7 @@ Route::middleware(['auth'])->group(function () {
         if ($user->esDocente()) {
             return Inertia::render('Perfil/Docente', [
                 'usuario' => [
-                    'nombre' => $user->nombre,
+                    'nombre' => $user->nombre . ' ' . $user->apellido,
                     'correo' => $user->correo,
                     'tipo' => 'docente'
                 ]
@@ -124,7 +147,7 @@ Route::middleware(['auth'])->group(function () {
         if ($user->esEstudiante()) {
             return Inertia::render('Perfil/Estudiante', [
                 'usuario' => [
-                    'nombre' => $user->nombre,
+                    'nombre' => $user->nombre . ' ' . $user->apellido,
                     'correo' => $user->correo,
                     'tipo' => 'estudiante'
                 ]
@@ -134,7 +157,7 @@ Route::middleware(['auth'])->group(function () {
         // Usuario sin tipo definido
         return Inertia::render('Perfil/General', [
             'usuario' => [
-                'nombre' => $user->nombre,
+                'nombre' => $user->nombre . ' ' . $user->apellido,
                 'correo' => $user->correo,
                 'tipo' => 'indefinido'
             ]

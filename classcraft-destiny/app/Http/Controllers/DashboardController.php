@@ -1,111 +1,141 @@
 <?php
 
+// app/Http/Controllers/DashboardController.php
 namespace App\Http\Controllers;
 
 use App\Models\Clase;
-use App\Models\Usuario;
-use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class DashboardController extends Controller
 {
-    /**
-     * Dashboard principal - Sin redirecciones, renderiza directo
-     */
     public function index()
     {
-        // Cargar el usuario con su relación tipoUsuario
-        $user = auth()->user()->load('tipoUsuario');
+        $user = auth()->user();
         
-        // Si es docente, mostrar dashboard de profesor
         if ($user->esDocente()) {
             return $this->dashboardProfesor($user);
         }
         
-        // Si es estudiante, mostrar dashboard de estudiante
         if ($user->esEstudiante()) {
             return $this->dashboardEstudiante($user);
         }
         
-        // Si no tiene tipo definido, mostrar dashboard básico
         return $this->dashboardBasico($user);
     }
     
-    /**
-     * Dashboard específico para profesores
-     */
     private function dashboardProfesor($user)
     {
-        // Obtener clases del profesor
-        $clases = Clase::where('id_docente', $user->id)
-            ->withCount(['estudiantes as total_estudiantes' => function($query) {
-                // Aquí asumo que tienes una tabla pivot o relación
-                // Ajusta según tu estructura real
-            }])
+        // USAR QUERY DIRECTA PARA EVITAR PROBLEMAS DE RELACIONES
+        $clases = DB::table('clase')
+            ->where('id_docente', $user->id)
             ->orderBy('created_at', 'desc')
             ->get()
             ->map(function($clase) {
+                // Contar estudiantes de forma directa
+                $totalEstudiantes = DB::table('inscripcion_clase')
+                    ->where('id_clase', $clase->id)
+                    ->where('activo', true)
+                    ->count();
+
                 return [
                     'id' => $clase->id,
                     'nombre' => $clase->nombre,
                     'descripcion' => $clase->descripcion,
                     'codigo' => $clase->codigo ?? 'SIN_CODIGO',
-                    'fecha_inicio' => $clase->fecha_inicio ? $clase->fecha_inicio->format('Y-m-d') : date('Y-m-d'),
-                    'fecha_fin' => $clase->fecha_fin ? $clase->fecha_fin->format('Y-m-d') : date('Y-m-d', strtotime('+1 month')),
-                    'total_estudiantes' => 0, // Temporal hasta que configures la relación
-                    'activa' => true,
+                    'fecha_inicio' => $clase->fecha_inicio ?? date('Y-m-d'),
+                    'fecha_fin' => $clase->fecha_fin ?? date('Y-m-d', strtotime('+1 month')),
+                    'total_estudiantes' => $totalEstudiantes,
+                    'activa' => $clase->activa ?? true,
                     'progreso' => [
                         'completadas' => 0,
                         'total_actividades' => 0,
                         'porcentaje' => 0,
                         'dias_restantes' => 30
-                    ],
-                    'puede_seleccionar' => false // Temporal
+                    ]
                 ];
             });
 
-        // Estadísticas del profesor
+        $totalEstudiantes = DB::table('inscripcion_clase')
+            ->join('clase', 'inscripcion_clase.id_clase', '=', 'clase.id')
+            ->where('clase.id_docente', $user->id)
+            ->where('inscripcion_clase.activo', true)
+            ->count();
+
         $estadisticas = [
             'total_clases' => $clases->count(),
             'clases_activas' => $clases->where('activa', true)->count(),
-            'total_estudiantes' => 0, // Temporal
-            'promedio_estudiantes' => 0 // Temporal
+            'total_estudiantes' => $totalEstudiantes,
+            'promedio_estudiantes' => $clases->count() > 0 ? round($totalEstudiantes / $clases->count(), 1) : 0
         ];
 
         return Inertia::render('Dashboard/Profesor', [
             'clases' => $clases,
             'estadisticas' => $estadisticas,
             'profesor' => [
-                'nombre' => $user->nombre,
+                'nombre' => $user->nombre . ' ' . $user->apellido,
                 'correo' => $user->correo
             ]
         ]);
     }
     
-    /**
-     * Dashboard específico para estudiantes
-     */
     private function dashboardEstudiante($user)
     {
-        // Por ahora, dashboard básico para estudiantes
+        $clases = DB::table('inscripcion_clase')
+            ->join('clase', 'inscripcion_clase.id_clase', '=', 'clase.id')
+            ->join('usuarios as docentes', 'clase.id_docente', '=', 'docentes.id')
+            ->where('inscripcion_clase.id_estudiante', $user->id)
+            ->where('inscripcion_clase.activo', true)
+            ->select([
+                'clase.id',
+                'clase.nombre',
+                'clase.descripcion',
+                'clase.codigo',
+                'clase.fecha_inicio',
+                'clase.fecha_fin',
+                'clase.activa',
+                'docentes.nombre as docente_nombre',
+                'docentes.apellido as docente_apellido'
+            ])
+            ->get()
+            ->map(function($clase) {
+                return [
+                    'id' => $clase->id,
+                    'nombre' => $clase->nombre,
+                    'descripcion' => $clase->descripcion,
+                    'codigo' => $clase->codigo,
+                    'docente' => $clase->docente_nombre . ' ' . $clase->docente_apellido,
+                    'fecha_inicio' => $clase->fecha_inicio,
+                    'fecha_fin' => $clase->fecha_fin,
+                    'progreso' => 0,
+                    'activa' => $clase->activa
+                ];
+            });
+
+        $estadisticas = [
+            'total_clases' => $clases->count(),
+            'clases_activas' => $clases->where('activa', true)->count(),
+            'actividades_completadas' => 0,
+            'xp_total' => 0
+        ];
+
         return Inertia::render('Dashboard/Estudiante', [
-            'mensaje' => 'Dashboard de Estudiante - En construcción',
+            'clases' => $clases,
+            'estadisticas' => $estadisticas,
             'estudiante' => [
-                'nombre' => $user->nombre,
-                'correo' => $user->correo
+                'nombre' => $user->nombre . ' ' . $user->apellido,
+                'correo' => $user->correo,
+                'codigo' => 'N/A'
             ]
         ]);
     }
     
-    /**
-     * Dashboard básico si no tiene tipo definido
-     */
     private function dashboardBasico($user)
     {
         return Inertia::render('Dashboard/Basico', [
             'mensaje' => 'Bienvenido al sistema. Tu perfil está en configuración.',
             'usuario' => [
-                'nombre' => $user->nombre,
+                'nombre' => $user->nombre . ' ' . $user->apellido,
                 'correo' => $user->correo,
                 'tipo' => 'indefinido'
             ]

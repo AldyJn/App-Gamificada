@@ -1,11 +1,13 @@
 <?php
 // app/Http/Middleware/ClaseAccessMiddleware.php
 
+// app/Http/Middleware/ClaseAccessMiddleware.php
 namespace App\Http\Middleware;
 
 use Closure;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\DB;
 use App\Models\Clase;
 
 class ClaseAccessMiddleware
@@ -20,17 +22,22 @@ class ClaseAccessMiddleware
 
         $usuario = Auth::user();
 
-        // Verificar acceso según el tipo de usuario
         if ($usuario->esDocente()) {
-            if ($clase->id_docente !== $usuario->docente->id) {
-                abort(403, 'No tienes permisos para gestionar esta clase.');
+            if ($clase->id_docente !== $usuario->id) {
+                abort(403, 'NO TIENES ACCESO A ESTA CLASE');
             }
         } elseif ($usuario->esEstudiante()) {
-            if (!$clase->estudiantes()->where('estudiante.id', $usuario->estudiante->id)->exists()) {
-                abort(403, 'No estás inscrito en esta clase.');
+            $estaInscrito = DB::table('inscripcion_clase')
+                ->where('id_clase', $clase->id)
+                ->where('id_estudiante', $usuario->id)  // COLUMNA CORRECTA
+                ->where('activo', true)
+                ->exists();
+                
+            if (!$estaInscrito) {
+                abort(403, 'NO ESTÁS INSCRITO EN ESTA CLASE');
             }
         } else {
-            abort(403, 'Tipo de usuario no autorizado.');
+            abort(403, 'TIPO DE USUARIO NO AUTORIZADO');
         }
 
         return $next($request);
