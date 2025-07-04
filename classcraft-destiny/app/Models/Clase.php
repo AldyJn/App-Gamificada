@@ -1,4 +1,5 @@
 <?php
+// app/Models/Clase.php - CORRECCIÓN COMPLETA
 
 namespace App\Models;
 
@@ -13,12 +14,12 @@ class Clase extends Model
 {
     use HasFactory;
 
-    protected $table = 'clase';
+    protected $table = 'clase'; // 🔧 Cambiar a 'clases' si es necesario
 
     protected $fillable = [
         'nombre',
         'descripcion', 
-        'codigo',
+        'codigo', // 🔧 Usar 'codigo' en lugar de 'codigo_invitacion'
         'id_docente',
         'fecha_inicio',
         'fecha_fin',
@@ -35,7 +36,8 @@ class Clase extends Model
         'fecha_fin' => 'date',
         'activa' => 'boolean',
         'permitir_inscripcion' => 'boolean',
-        'configuracion_gamificacion' => 'array'
+        'configuracion_gamificacion' => 'array',
+        'año_academico' => 'string'
     ];
 
     // ==========================================
@@ -77,6 +79,7 @@ class Clase extends Model
 
     /**
      * Generar código único para la clase
+     * 🔧 CORREGIDO: Ahora busca en la columna correcta
      */
     public static function generarCodigoUnico(): string
     {
@@ -86,13 +89,13 @@ class Clase extends Model
             $numeros = str_pad(mt_rand(1, 999), 3, '0', STR_PAD_LEFT);
             $codigo = $letras . $numeros;
             
-        } while (self::where('codigo', $codigo)->exists());
-        
+        } while (static::where('codigo', $codigo)->exists()); // 🔧 CORREGIDO: usar 'codigo'
+
         return $codigo;
     }
 
     // ==========================================
-    // MÉTODOS DE UTILIDAD
+    // MÉTODOS DE INSTANCIA
     // ==========================================
 
     /**
@@ -106,116 +109,57 @@ class Clase extends Model
     }
 
     /**
-     * Obtener progreso de la clase basado en fechas
+     * Obtener el progreso de la clase
      */
-    public function obtenerProgreso(): int
+    public function obtenerProgreso(): float
     {
-        $inicio = $this->fecha_inicio;
-        $fin = $this->fecha_fin;
-        $hoy = now();
-
-        if ($hoy < $inicio) {
-            return 0; // No ha comenzado
+        if (!$this->fecha_inicio || !$this->fecha_fin) {
+            return 0.0;
         }
 
-        if ($hoy > $fin) {
-            return 100; // Ha terminado
-        }
-
-        // Calcular porcentaje de progreso
-        $totalDias = $inicio->diffInDays($fin);
-        if ($totalDias <= 0) {
-            return 100;
-        }
+        $totalDias = $this->fecha_inicio->diffInDays($this->fecha_fin);
+        $diasTranscurridos = $this->fecha_inicio->diffInDays(now());
         
-        $diasTranscurridos = $inicio->diffInDays($hoy);
-        return min(100, round(($diasTranscurridos / $totalDias) * 100));
+        if ($totalDias <= 0) {
+            return 100.0;
+        }
+
+        return min(100.0, max(0.0, ($diasTranscurridos / $totalDias) * 100));
+    }
+
+    /**
+     * Verificar si puede seleccionar estudiantes aleatorios
+     */
+    public function puedeSeleccionarEstudiantes(): bool
+    {
+        return $this->estudiantes()->count() > 0;
+    }
+
+    /**
+     * Obtener estudiantes activos
+     */
+    public function estudiantesActivos()
+    {
+        return $this->estudiantes()->wherePivot('activo', true);
     }
 
     /**
      * Agregar estudiante a la clase
      */
-    public function agregarEstudiante($usuarioId): bool
+    public function agregarEstudiante($estudianteId)
     {
-        try {
-            // Verificar si ya está inscrito
-            if ($this->estudiantes()->where('usuario.id', $usuarioId)->exists()) {
-                return false;
-            }
-
-            // Inscribir usando la tabla correcta
-            if (Schema::hasTable('inscripcion_clase')) {
-                $this->estudiantes()->attach($usuarioId, [
-                    'activo' => true,
-                    'fecha_ingreso' => now(),
-                    'created_at' => now(),
-                    'updated_at' => now()
-                ]);
-            } else {
-                $this->estudiantes()->attach($usuarioId, [
-                    'created_at' => now(),
-                    'updated_at' => now()
-                ]);
-            }
-            
-            return true;
-            
-        } catch (\Exception $e) {
-            \Log::error('Error agregando estudiante: ' . $e->getMessage());
-            return false;
-        }
+        return $this->estudiantes()->attach($estudianteId, [
+            'fecha_ingreso' => now(),
+            'activo' => true
+        ]);
     }
 
     /**
-     * Obtener total de estudiantes activos
+     * Obtener total de estudiantes
      */
-    public function totalEstudiantes(): int
+    public function getTotalEstudiantesAttribute(): int
     {
-        try {
-            if (Schema::hasTable('inscripcion_clase')) {
-                return $this->estudiantes()->wherePivot('activo', true)->count();
-            }
-            
-            return $this->estudiantes()->count();
-            
-        } catch (\Exception $e) {
-            \Log::error('Error contando estudiantes: ' . $e->getMessage());
-            return 0;
-        }
-    }
-
-    /**
-     * Verificar si permite inscripciones
-     */
-    public function permiteInscripciones(): bool
-    {
-        return $this->permitir_inscripcion && 
-               $this->activa && 
-               !$this->fecha_fin->isPast();
-    }
-
-    /**
-     * Regenerar código de la clase
-     */
-    public function regenerarCodigo(): string
-    {
-        $nuevoCodigo = self::generarCodigoUnico();
-        $this->update(['codigo' => $nuevoCodigo]);
-        return $nuevoCodigo;
-    }
-
-    /**
-     * Obtener estudiantes activos con información completa
-     */
-    public function estudiantesActivos()
-    {
-        $query = $this->estudiantes()->orderBy('nombre');
-        
-        if (Schema::hasTable('inscripcion_clase')) {
-            $query->wherePivot('activo', true);
-        }
-        
-        return $query->get();
+        return $this->estudiantes()->wherePivot('activo', true)->count();
     }
 
     // ==========================================
@@ -231,7 +175,7 @@ class Clase extends Model
     }
 
     /**
-     * Scope para clases de un docente específico
+     * Scope para clases de un docente
      */
     public function scopeDeDocente($query, $docenteId)
     {
@@ -239,20 +183,10 @@ class Clase extends Model
     }
 
     /**
-     * Scope para buscar por código
+     * Scope para clases por código
      */
     public function scopePorCodigo($query, $codigo)
     {
-        return $query->where('codigo', strtoupper(trim($codigo)));
-    }
-
-    /**
-     * Scope para clases que permiten inscripción
-     */
-    public function scopeQuePermitenInscripcion($query)
-    {
-        return $query->where('permitir_inscripcion', true)
-                     ->where('activa', true)
-                     ->where('fecha_fin', '>=', now());
+        return $query->where('codigo', strtoupper($codigo));
     }
 }

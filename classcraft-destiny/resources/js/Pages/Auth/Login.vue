@@ -50,40 +50,39 @@
           <form @submit.prevent="handleLogin" class="login-form">
             
             <!-- Campo Email -->
-            <div>
-              <label for="email" class="cosmic-label">
-                <span class="flex items-center space-x-2">
-                  <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"/>
-                  </svg>
-                  <span>Correo Electrónico</span>
-                </span>
-              </label>
-              <div class="relative">
-                <input
-                  id="email"
-                  ref="emailInput"
-                  v-model="form.correo"
-                  type="email"
-                  class="cosmic-input w-full pl-10 pr-10"
-                  placeholder="guardian@zenthoria.edu"
-                  required
-                  autocomplete="email"
-                  :class="{ 'border-red-500': form.errors.correo || form.errors.email }"
-                  @keydown.enter="focusPassword"
-                  @input="errorMessage = ''"
-                />
-                <div class="absolute inset-y-0 right-0 pr-3 flex items-center">
-                  <svg class="h-5 w-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"/>
-                  </svg>
+              <div>
+                <label for="correo" class="cosmic-label">
+                  <span class="flex items-center space-x-2">
+                    <svg class="w-4 h-4 text-cyan-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"/>
+                    </svg>
+                    <span>Correo Electrónico</span>
+                  </span>
+                </label>
+                <div class="relative">
+                  <input
+                    id="correo"
+                    ref="emailInput"
+                    v-model="form.correo"
+                    type="email"
+                    class="cosmic-input w-full pl-10 pr-10"
+                    placeholder="profesor@zenthoria.edu"
+                    required
+                    autocomplete="email"
+                    :class="{ 'border-red-500': form.errors.correo || form.errors.email }"
+                    @keydown.enter="focusPassword"
+                    @input="errorMessage = ''"
+                  />
+                  <div class="absolute inset-y-0 right-0 pr-3 flex items-center">
+                    <svg class="h-5 w-5 text-purple-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 12a4 4 0 10-8 0 4 4 0 008 0zm0 0v1.5a2.5 2.5 0 005 0V12a9 9 0 10-9 9m4.5-1.206a8.959 8.959 0 01-4.5 1.207"/>
+                    </svg>
+                  </div>
                 </div>
+                <p v-if="form.errors.correo || form.errors.email" class="cosmic-error-text">
+                  {{ form.errors.correo || form.errors.email }}
+                </p>
               </div>
-              <p v-if="form.errors.correo || form.errors.email" class="cosmic-error-text">
-                {{ form.errors.correo || form.errors.email }}
-              </p>
-            </div>
-
             <!-- Campo Password -->
             <div>
               <label for="password" class="cosmic-label">
@@ -280,14 +279,14 @@ const rememberMe = ref(false)
 const isLoading = ref(false)
 const errorMessage = ref('')
 
-// Formulario usando Inertia.js
+// ✅ CORREGIDO: Usar 'correo' que coincide con tu base de datos
 const form = useForm({
-  correo: '',
+  correo: '',        // ← CORREGIDO: usar 'correo' en lugar de 'email'
   password: '',
   remember: false
 })
 
-// Computed properties
+// ✅ CORREGIDO: Computed properties
 const isFormValid = computed(() => {
   return form.correo && 
          form.password && 
@@ -295,7 +294,7 @@ const isFormValid = computed(() => {
          form.password.length > 0
 })
 
-// Métodos del componente
+// ✅ CORREGIDO: Método handleLogin
 const handleLogin = () => {
   if (!isFormValid.value) return
 
@@ -303,19 +302,41 @@ const handleLogin = () => {
   isLoading.value = true
   form.remember = rememberMe.value
 
+  console.log('🚀 Enviando datos de login:', {
+    correo: form.correo,
+    password: form.password ? '***' : 'vacío',
+    remember: form.remember
+  })
+
   form.post('/login', {
     onStart: () => {
+      console.log('🔄 Iniciando petición de login...')
       isLoading.value = true
     },
-    onSuccess: () => {
+    onSuccess: (page) => {
+      console.log('✅ Login exitoso:', page)
       isLoading.value = false
       // La redirección se maneja automáticamente por Inertia
     },
     onError: (errors) => {
+      console.error('❌ Errores de login:', errors)
       isLoading.value = false
-      errorMessage.value = errors.correo || errors.email || errors.password || 'Error de autenticación'
+      
+      // Manejar diferentes tipos de errores
+      if (errors.correo) {
+        errorMessage.value = errors.correo
+      } else if (errors.email) {
+        errorMessage.value = errors.email
+      } else if (errors.password) {
+        errorMessage.value = errors.password
+      } else if (errors.general) {
+        errorMessage.value = errors.general
+      } else {
+        errorMessage.value = 'Error de autenticación. Verifica tus credenciales.'
+      }
     },
     onFinish: () => {
+      console.log('🏁 Petición de login terminada')
       isLoading.value = false
       form.reset('password')
     }
@@ -363,7 +384,6 @@ onMounted(() => {
   }
 })
 </script>
-
 <style scoped>
 /* Estilos base */
 .cosmic-container {
