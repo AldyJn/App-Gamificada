@@ -9,6 +9,8 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Validation\ValidationException;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 
 class AuthController extends Controller
@@ -25,46 +27,92 @@ class AuthController extends Controller
     }
 
     /**
-     * Procesar login
+     * Procesar login - COMPLETAMENTE CORREGIDO
      */
     public function login(Request $request)
     {
+        // ✅ CORREGIDO: Validar 'correo' que coincide con la vista Vue
         $request->validate([
-            'email' => 'required|email',
+            'correo' => 'required|email',
             'password' => 'required'
         ], [
-            'email.required' => 'El correo es obligatorio',
-            'email.email' => 'El formato del correo no es válido',
+            'correo.required' => 'El correo es obligatorio',
+            'correo.email' => 'El formato del correo no es válido',
             'password.required' => 'La contraseña es obligatoria'
         ]);
 
-        // Buscar usuario por correo
-        $usuario = Usuario::where('correo', $request->email)->first();
+        // ✅ CORREGIDO: Usar 'correo' del request
+        $usuario = Usuario::where('correo', $request->correo)->first();
 
-        if (!$usuario || !Hash::check($request->password, $usuario->contraseña_hash)) {
+        // ✅ LOGGING mejorado para debugging
+        Log::info('Intento de login', [
+            'correo' => $request->correo,
+            'usuario_encontrado' => $usuario ? 'Sí' : 'No',
+            'ip' => $request->ip()
+        ]);
+
+        if (!$usuario) {
+            Log::warning('Usuario no encontrado', ['correo' => $request->correo]);
             throw ValidationException::withMessages([
-                'email' => 'Las credenciales no coinciden con nuestros registros.',
+                'correo' => 'No se encontró una cuenta con este correo electrónico.',
             ]);
         }
 
-        // Verificar que el usuario esté activo
-        if (!$usuario->activo) {
+        if (!Hash::check($request->password, $usuario->contraseña_hash)) {
+            Log::warning('Contraseña incorrecta', ['correo' => $request->correo]);
             throw ValidationException::withMessages([
-                'email' => 'Tu cuenta está desactivada. Contacta al administrador.',
+                'correo' => 'La contraseña es incorrecta.',
             ]);
         }
 
-        // Actualizar último acceso
-        $usuario->update(['ultimo_acceso' => now()]);
+        // ✅ CORREGIDO: Verificar estado usando los campos reales de la migración
+        if ($usuario->eliminado) {
+            Log::warning('Usuario eliminado', ['correo' => $request->correo]);
+            throw ValidationException::withMessages([
+                'correo' => 'Esta cuenta ha sido desactivada. Contacta al administrador.',
+            ]);
+        }
 
-        // Autenticar usuario
-        Auth::login($usuario, $request->boolean('remember'));
+        if ($usuario->id_estado != 1) { // 1 = activo según el seeder
+            Log::warning('Usuario con estado inválido', [
+                'correo' => $request->correo,
+                'estado' => $usuario->id_estado
+            ]);
+            throw ValidationException::withMessages([
+                'correo' => 'Tu cuenta no está disponible. Contacta al administrador.',
+            ]);
+        }
 
-        // Regenerar sesión
-        $request->session()->regenerate();
+        try {
+            // Actualizar último acceso
+            $usuario->update(['ultimo_acceso' => now()]);
 
-        // Redirigir al dashboard
-        return redirect()->intended(route('dashboard'));
+            // Autenticar usuario
+            Auth::login($usuario, $request->boolean('remember'));
+
+            // Regenerar sesión
+            $request->session()->regenerate();
+
+            Log::info('Login exitoso', [
+                'correo' => $request->correo, 
+                'user_id' => $usuario->id,
+                'tipo_usuario' => $usuario->id_tipo_usuario
+            ]);
+
+            // Redirigir al dashboard
+            return redirect()->intended(route('dashboard'));
+
+        } catch (\Exception $e) {
+            Log::error('Error durante login', [
+                'correo' => $request->correo,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString()
+            ]);
+
+            throw ValidationException::withMessages([
+                'correo' => 'Error interno del servidor. Intenta nuevamente.',
+            ]);
+        }
     }
 
     /**
@@ -79,7 +127,7 @@ class AuthController extends Controller
     }
 
     /**
-     * Procesar registro
+     * Procesar registro - COMPLETAMENTE CORREGIDO
      */
     public function register(Request $request)
     {
@@ -93,7 +141,7 @@ class AuthController extends Controller
                 'string',
                 'min:8',
                 'confirmed',
-                'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/', // Al menos una minúscula, mayúscula y número
+                'regex:/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d).+$/',
             ],
             'id_tipo_usuario' => 'required|exists:tipo_usuario,id',
             'terminos' => 'accepted',
@@ -113,16 +161,26 @@ class AuthController extends Controller
         ]);
 
         try {
-            // Crear usuario
+            // ✅ CORREGIDO: Crear usuario usando campos que existen en la migración
             $usuario = Usuario::create([
                 'nombre' => $request->nombre,
                 'apellido' => $request->apellido,
                 'correo' => $request->correo,
                 'contraseña_hash' => Hash::make($request->password),
+                'salt' => Str::random(32),  // ✅ Agregado: requerido por la migración
                 'id_tipo_usuario' => $request->id_tipo_usuario,
-                'fecha_registro' => now(),
+                'id_estado' => 1, // ✅ CORREGIDO: usar id_estado en lugar de activo
                 'ultimo_acceso' => now(),
-                'activo' => true,
+                'timezone' => 'America/Lima',
+                'eliminado' => false, // ✅ CORREGIDO: usar eliminado en lugar de activo
+                // ✅ ELIMINADO: 'fecha_registro' no existe en la migración
+                // ✅ ELIMINADO: 'activo' no existe en la migración
+            ]);
+
+            Log::info('Usuario registrado exitosamente', [
+                'correo' => $usuario->correo,
+                'id' => $usuario->id,
+                'tipo' => $usuario->id_tipo_usuario
             ]);
 
             // Autenticar inmediatamente
@@ -135,13 +193,14 @@ class AuthController extends Controller
                 '¡Registro exitoso! Bienvenido a la Academia Zenthoria, ' . $usuario->nombre . '!');
 
         } catch (\Exception $e) {
-            \Log::error('Error en registro: ' . $e->getMessage(), [
+            Log::error('Error en registro', [
+                'error' => $e->getMessage(),
                 'request_data' => $request->except('password', 'password_confirmation'),
-                'exception' => $e
+                'trace' => $e->getTraceAsString()
             ]);
 
             return back()->withErrors([
-                'general' => 'Error al crear la cuenta. Intenta nuevamente.'
+                'general' => 'Error al crear la cuenta. Intenta nuevamente: ' . $e->getMessage()
             ])->withInput($request->except('password', 'password_confirmation'));
         }
     }

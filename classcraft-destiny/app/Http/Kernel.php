@@ -36,8 +36,6 @@ class Kernel extends HttpKernel
             \Illuminate\View\Middleware\ShareErrorsFromSession::class,
             \App\Http\Middleware\VerifyCsrfToken::class,
             \Illuminate\Routing\Middleware\SubstituteBindings::class,
-            \App\Http\Middleware\HandleInertiaRequests::class,
-            \Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets::class,
         ],
 
         'api' => [
@@ -71,46 +69,15 @@ class Kernel extends HttpKernel
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
 
         // ==========================================
-        // MIDDLEWARES PERSONALIZADOS - SISTEMA EDUCATIVO
+        // ✅ MIDDLEWARES PERSONALIZADOS - SISTEMA EDUCATIVO
         // ==========================================
         
         // Control de tipos de usuario
-        'user.type' => \App\Http\Middleware\CheckUserType::class,
+          'user.type' => \App\Http\Middleware\CheckUserType::class,
         
-        // Control de acceso a clases
-        'clase.access' => \App\Http\Middleware\CheckClaseAccess::class,
-        'clase.owner' => \App\Http\Middleware\CheckClaseOwnership::class,
-        
-        // Control de personajes (para futuras funcionalidades RPG)
-        'personaje.owner' => \App\Http\Middleware\CheckPersonajeOwnership::class,
-        
-        // Throttling personalizado
-        'throttle.user' => \App\Http\Middleware\ThrottleByUser::class,
-        
-        // ==========================================
-        // MIDDLEWARES ESPECÍFICOS POR ROL
-        // ==========================================
-        
-        // Middleware específico para docentes
-        'docente' => \App\Http\Middleware\CheckUserType::class.':docente',
-        
-        // Middleware específico para estudiantes  
-        'estudiante' => \App\Http\Middleware\CheckUserType::class.':estudiante',
-        
-        // ==========================================
-        // MIDDLEWARES PARA FUTURAS FUNCIONALIDADES
-        // ==========================================
-        
-        // Para cuando implementes sistema de roles más complejo
-        'role' => \App\Http\Middleware\RoleMiddleware::class,
-        
-        // Para actividades con límites de tiempo
-        'actividad.activa' => \App\Http\Middleware\CheckActividadActiva::class,
-        
-        // Para verificar si un estudiante tiene permisos en una actividad
-        'actividad.access' => \App\Http\Middleware\CheckActividadAccess::class,
-        
-        // Para limitar intentos en evaluaciones
-        'evaluacion.intentos' => \App\Http\Middleware\CheckEvaluacionIntentos::class,
+        // ✅ ALIASES ESPECÍFICOS PARA COMODIDAD
+        'docente' => \App\Http\Middleware\CheckUserType::class,
+        'estudiante' => \App\Http\Middleware\CheckUserType::class,
+        'admin' => \App\Http\Middleware\CheckUserType::class,
     ];
 }
