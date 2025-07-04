@@ -1,12 +1,10 @@
 <?php
 
 use App\Http\Controllers\DashboardController;
-use App\Http\Controllers\ClaseController;
+use App\Http\Controllers\ProfesorDashboardController;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\WelcomeController;
 use App\Http\Controllers\Auth\AuthController;
-use App\Http\Controllers\Profesor\ProfesorController;
-use App\Http\Controllers\Estudiante\EstudianteController;
+use Inertia\Inertia;
 
 // ==========================================
 // PÁGINA DE INICIO
@@ -50,106 +48,122 @@ Route::post('/logout', [AuthController::class, 'logout'])
 // ==========================================
 Route::middleware(['auth'])->group(function () {
     
-    // Dashboard principal - accesible para todos los usuarios autenticados
+    // ==========================================
+    // DASHBOARD PRINCIPAL - SIN REDIRECCIONES
+    // ==========================================
     Route::get('/dashboard', [DashboardController::class, 'index'])->name('dashboard');
-    
-    // Rutas de perfil - accesibles para todos
-    Route::get('/perfil', [DashboardController::class, 'configurarPerfil'])->name('perfil');
-    Route::get('/configurar-perfil', [DashboardController::class, 'configurarPerfil'])->name('configurar-perfil');
 
     // ==========================================
-    // GESTIÓN DE CLASES - CON MIDDLEWARE ESPECÍFICO
+    // RUTAS ESPECÍFICAS DE PROFESORES
     // ==========================================
-    Route::prefix('clases')->name('clases.')->group(function () {
-        // Rutas accesibles para todos los usuarios autenticados
-        Route::get('/', [ClaseController::class, 'index'])->name('index');
-        Route::get('/{clase}', [ClaseController::class, 'show'])->name('show');
+    Route::prefix('profesor')->name('profesor.')->middleware('user.type:docente')->group(function () {
         
-        // Rutas SOLO para docentes
-        Route::middleware('user.type:docente')->group(function () {
-            Route::get('/crear', [ClaseController::class, 'create'])->name('create');
-            Route::post('/', [ClaseController::class, 'store'])->name('store');
-            Route::get('/{clase}/editar', [ClaseController::class, 'edit'])->name('edit');
-            Route::put('/{clase}', [ClaseController::class, 'update'])->name('update');
-            Route::delete('/{clase}', [ClaseController::class, 'destroy'])->name('destroy');
+        // Dashboard del profesor
+        Route::get('/', [ProfesorDashboardController::class, 'index'])->name('dashboard');
+        
+        // Gestión de clases
+        Route::prefix('clases')->name('clases.')->group(function () {
+            // Crear clase
+            Route::post('/', [ProfesorDashboardController::class, 'crearClase'])->name('crear');
+            
+            // Ver clase específica
+            Route::get('/{clase}', [ProfesorDashboardController::class, 'verClase'])->name('ver');
+            
+            // Selección aleatoria de estudiantes
+            Route::post('/{clase}/seleccionar-aleatorio', [ProfesorDashboardController::class, 'seleccionarEstudianteAleatorio'])->name('seleccionar-aleatorio');
         });
-        
-        // Rutas SOLO para estudiantes
-        Route::middleware('user.type:estudiante')->group(function () {
-            Route::get('/unirse', [ClaseController::class, 'showJoinForm'])->name('unirse.form');
-            Route::post('/unirse', [ClaseController::class, 'join'])->name('unirse');
-        });
-        
-        // Salir de clase - disponible para estudiantes
-        Route::post('/{clase}/salir', [ClaseController::class, 'leave'])
-            ->name('salir')
-            ->middleware('user.type:estudiante');
     });
 
     // ==========================================
-    // RUTAS ESPECÍFICAS PARA DOCENTES
+    // RUTAS ESPECÍFICAS DE ESTUDIANTES 
     // ==========================================
-    Route::prefix('docentes')->name('docentes.')
-        ->middleware('user.type:docente')
-        ->group(function () {
-            Route::get('/', [ProfesorController::class, 'index'])->name('index');
-            Route::get('/perfil', [ProfesorController::class, 'perfil'])->name('perfil');
-            Route::get('/mis-clases', [ProfesorController::class, 'misClases'])->name('mis-clases');
-            Route::get('/estadisticas', [ProfesorController::class, 'estadisticas'])->name('estadisticas');
-            
-            // Gestión avanzada de clases
-            Route::get('/clases/{clase}/gestionar', [ProfesorController::class, 'gestionarClase'])->name('gestionar-clase');
-            Route::post('/clases/{clase}/comportamiento', [ProfesorController::class, 'aplicarComportamiento'])->name('aplicar-comportamiento');
-            Route::get('/estudiantes/buscar', [ProfesorController::class, 'buscarEstudiantes'])->name('buscar-estudiantes');
-        });
+    Route::prefix('estudiantes')->name('estudiantes.')->middleware('user.type:estudiante')->group(function () {
+        
+        // Perfil del estudiante (SIN REDIRECCIONES)
+        Route::get('/perfil', function() {
+            return Inertia::render('Estudiantes/Perfil', [
+                'estudiante' => [
+                    'nombre' => auth()->user()->nombre,
+                    'correo' => auth()->user()->correo
+                ],
+                'mensaje' => 'Perfil de estudiante en construcción'
+            ]);
+        })->name('perfil');
+        
+        Route::get('/mis-clases', function() {
+            return Inertia::render('Estudiantes/MisClases', [
+                'clases' => [],
+                'mensaje' => 'Funcionalidad en desarrollo'
+            ]);
+        })->name('mis-clases');
+        
+        Route::get('/progreso', function() {
+            return Inertia::render('Estudiantes/Progreso', [
+                'progreso' => [],
+                'mensaje' => 'Sistema de progreso en desarrollo'
+            ]);
+        })->name('progreso');
+    });
 
     // ==========================================
-    // RUTAS ESPECÍFICAS PARA ESTUDIANTES
+    // PERFIL GENERAL - SIN REDIRECCIONES
     // ==========================================
-    Route::prefix('estudiantes')->name('estudiantes.')
-        ->middleware('user.type:estudiante')
-        ->group(function () {
-            Route::get('/', [EstudianteController::class, 'index'])->name('index');
-            Route::get('/perfil', [EstudianteController::class, 'perfil'])->name('perfil');
-            Route::get('/mis-clases', [EstudianteController::class, 'misClases'])->name('mis-clases');
-            Route::get('/progreso', [EstudianteController::class, 'progreso'])->name('progreso');
-            
-            // Dashboard específico del estudiante
-            Route::get('/dashboard', [EstudianteController::class, 'dashboard'])->name('dashboard');
-            
-            // Gestión de personajes (para futuras funcionalidades)
-            Route::get('/personaje', [EstudianteController::class, 'verPersonaje'])->name('personaje');
-            Route::get('/crear-personaje', [EstudianteController::class, 'crearPersonaje'])->name('crear-personaje');
-        });
+    Route::get('/perfil', function() {
+        $user = auth()->user();
+        
+        if ($user->esDocente()) {
+            return Inertia::render('Perfil/Docente', [
+                'usuario' => [
+                    'nombre' => $user->nombre,
+                    'correo' => $user->correo,
+                    'tipo' => 'docente'
+                ]
+            ]);
+        }
+        
+        if ($user->esEstudiante()) {
+            return Inertia::render('Perfil/Estudiante', [
+                'usuario' => [
+                    'nombre' => $user->nombre,
+                    'correo' => $user->correo,
+                    'tipo' => 'estudiante'
+                ]
+            ]);
+        }
+        
+        // Usuario sin tipo definido
+        return Inertia::render('Perfil/General', [
+            'usuario' => [
+                'nombre' => $user->nombre,
+                'correo' => $user->correo,
+                'tipo' => 'indefinido'
+            ]
+        ]);
+    })->name('perfil');
 
     // ==========================================
-    // API ENDPOINTS (AJAX) - CON AUTENTICACIÓN
+    // API ENDPOINTS (AJAX)
     // ==========================================
     Route::prefix('api')->name('api.')->group(function () {
-        // Stats del dashboard - accesible para todos
-        Route::get('/dashboard/stats', [DashboardController::class, 'stats']);
-        
-        // API específica para docentes
-        Route::middleware('user.type:docente')->group(function () {
-            Route::post('/clases/verificar-codigo', [ClaseController::class, 'verifyCode']);
-            Route::get('/docentes/estadisticas-avanzadas', [ProfesorController::class, 'estadisticasApi']);
-        });
-        
-        // API específica para estudiantes
-        Route::middleware('user.type:estudiante')->group(function () {
-            Route::get('/estudiantes/progreso-detallado', [EstudianteController::class, 'progresoApi']);
-            Route::post('/estudiantes/unirse-clase', [EstudianteController::class, 'unirseClaseApi']);
+        // Stats del dashboard
+        Route::get('/dashboard/stats', function() {
+            return response()->json([
+                'stats' => [
+                    'usuarios' => 0,
+                    'clases' => 0,
+                    'actividades' => 0
+                ]
+            ]);
         });
     });
 });
 
 // ==========================================
-// RUTAS DE RESPALDO Y ERRORES
+// RUTAS DE RESPALDO
 // ==========================================
 Route::fallback(function () {
     return inertia('Error', [
         'status' => 404,
-        'message' => 'Página no encontrada en la Torre',
-        'descripcion' => 'La página que buscas no existe o ha sido movida a otra ubicación.'
+        'message' => 'Página no encontrada'
     ]);
 });

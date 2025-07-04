@@ -2,4 +2,26 @@
 @tailwind components;
 @tailwind utilities;
 
-/* Estilos adicionales si necesitas */
+/* Estilos globales para ClassCraft Destiny */
+body {
+    font-family: 'Inter', sans-serif;
+    margin: 0;
+    padding: 0;
+}
+
+/* Clases de utilidad personalizadas */
+.transition-colors {
+    transition-property: color, background-color, border-color;
+    transition-timing-function: cubic-bezier(0.4, 0, 0.2, 1);
+    transition-duration: 200ms;
+}
+
+.backdrop-blur-sm {
+    backdrop-filter: blur(4px);
+}
+
+/* Fix para Inertia loading */
+.inertia-progress {
+    background-color: #C7B88A;
+    height: 2px;
+}

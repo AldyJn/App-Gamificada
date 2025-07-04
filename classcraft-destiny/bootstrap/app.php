@@ -21,11 +21,33 @@ return Application::configure(basePath: dirname(__DIR__))
 
         // Alias de middleware para rutas
         $middleware->alias([
+            // ==========================================
+            // MIDDLEWARES PERSONALIZADOS - SISTEMA EDUCATIVO
+            // ==========================================
+            
+            // Control de tipos de usuario
+            'user.type' => \App\Http\Middleware\CheckUserType::class,
+            
+            // Control de acceso a clases
+            'clase.access' => \App\Http\Middleware\CheckClaseAccess::class,
+            
+            // ==========================================
+            // MIDDLEWARES ESPECÍFICOS POR ROL
+            // ==========================================
+            
+            // Middleware específico para docentes
+            'docente' => \App\Http\Middleware\CheckUserType::class.':docente',
+            
+            // Middleware específico para estudiantes  
+            'estudiante' => \App\Http\Middleware\CheckUserType::class.':estudiante',
+            
+            // ==========================================
+            // MIDDLEWARES EXISTENTES
+            // ==========================================
             'profesor' => \App\Http\Middleware\ProfesorMiddleware::class,
-            'estudiante' => \App\Http\Middleware\EstudianteMiddleware::class,
+            'estudiante.old' => \App\Http\Middleware\EstudianteMiddleware::class,
             'role' => \App\Http\Middleware\RoleMiddleware::class,
             'auth.guardian' => \App\Http\Middleware\AuthGuardianMiddleware::class,
-            'clase.access' => \App\Http\Middleware\ClaseAccessMiddleware::class,
         ]);
 
         // Middleware por grupos
@@ -67,6 +89,7 @@ return Application::configure(basePath: dirname(__DIR__))
                 ], 403);
             }
             
-            return back()->with('error', 'Acceso denegado. Permisos insuficientes.');
+            return abort(403, 'No tienes permisos para acceder a esta sección de la Torre.');
         });
-    })->create();
+    })
+    ->create();

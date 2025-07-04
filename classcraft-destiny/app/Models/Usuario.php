@@ -17,10 +17,9 @@ class Usuario extends Authenticatable
 
     protected $table = 'usuario';
 
-    // ✅ CORREGIDO: Agregados campos faltantes
     protected $fillable = [
         'nombre',
-        'apellido',         
+        'apellido', 
         'correo',
         'avatar',
         'contraseña_hash',
@@ -28,10 +27,6 @@ class Usuario extends Authenticatable
         'id_tipo_usuario',
         'id_estado',
         'ultimo_acceso',
-        'timezone',
-        'notificaciones_push',
-        'configuracion_ui',
-        'estadisticas_globales',
         'eliminado'
     ];
 
@@ -45,23 +40,7 @@ class Usuario extends Authenticatable
         'ultimo_acceso' => 'datetime',
         'eliminado' => 'boolean',
         'email_verified_at' => 'datetime',
-        'notificaciones_push' => 'boolean',
-        'configuracion_ui' => 'array',
-        'estadisticas_globales' => 'array',
     ];
-
-    // ==========================================
-    // ACCESOR PARA COMPATIBILIDAD
-    // ==========================================
-
-    /**
-     * ✅ AGREGADO: Accesor para simular campo 'activo' 
-     * basado en 'eliminado' y 'id_estado'
-     */
-    public function getActivoAttribute(): bool
-    {
-        return !$this->eliminado && $this->id_estado == 1;
-    }
 
     // ==========================================
     // RELACIONES
@@ -100,11 +79,25 @@ class Usuario extends Authenticatable
     }
 
     /**
-     * Relación con notificaciones
+     * Relación con clases como estudiante (usando inscripcion_clase)
      */
-    public function notificaciones(): HasMany
+    public function clasesComoEstudiante(): BelongsToMany
     {
-        return $this->hasMany(Notificacion::class, 'id_usuario');
+        return $this->belongsToMany(
+            Clase::class,
+            'inscripcion_clase',  // tabla pivot
+            'id_estudiante',      // foreign key en tabla pivot para este modelo
+            'id_clase'            // foreign key en tabla pivot para el modelo relacionado
+        )->withPivot(['fecha_ingreso', 'activo'])
+         ->withTimestamps();
+    }
+
+    /**
+     * Relación con clases como docente
+     */
+    public function clasesComoDocente(): HasMany
+    {
+        return $this->hasMany(Clase::class, 'docente_id');
     }
 
     // ==========================================
@@ -140,6 +133,22 @@ class Usuario extends Authenticatable
     // ==========================================
 
     /**
+     * Obtiene las clases del usuario según su rol
+     */
+    public function clases()
+    {
+        if ($this->esDocente()) {
+            return $this->clasesComoDocente();
+        }
+        
+        if ($this->esEstudiante()) {
+            return $this->clasesComoEstudiante();
+        }
+        
+        return collect();
+    }
+
+    /**
      * Obtiene las iniciales del usuario
      */
     public function getInicialesAttribute(): string
@@ -155,11 +164,11 @@ class Usuario extends Authenticatable
     }
 
     /**
-     * ✅ MEJORADO: Verifica si el usuario está activo usando la lógica correcta
+     * Verifica si el usuario está activo
      */
     public function estaActivo(): bool
     {
-        return !$this->eliminado && $this->id_estado === 1;
+        return !$this->eliminado && $this->estado && $this->estado->nombre === 'activo';
     }
 
     /**
@@ -183,35 +192,63 @@ class Usuario extends Authenticatable
     }
 
     // ==========================================
-    // SCOPES
+    // MÉTODOS ESPECÍFICOS PARA DOCENTES
     // ==========================================
 
     /**
-     * Scope para usuarios activos
+     * Obtiene todas las clases del docente
      */
-    public function scopeActivos($query)
+    public function misClases()
     {
-        return $query->where('eliminado', false)->where('id_estado', 1);
+        if (!$this->esDocente()) {
+            return collect();
+        }
+
+        return $this->clasesComoDocente()
+            ->with(['estudiantes', 'actividades'])
+            ->get();
     }
 
     /**
-     * Scope para docentes
+     * Verifica si el docente puede gestionar una clase
      */
-    public function scopeDocentes($query)
+    public function puedeGestionarClase(Clase $clase): bool
     {
-        return $query->whereHas('tipoUsuario', function ($q) {
-            $q->where('nombre', 'docente');
-        });
+        return $this->esDocente() && $clase->docente_id === $this->id;
+    }
+
+    // ==========================================
+    // MÉTODOS ESPECÍFICOS PARA ESTUDIANTES
+    // ==========================================
+
+    /**
+     * Obtiene las clases activas del estudiante
+     */
+    public function clasesActivas()
+    {
+        if (!$this->esEstudiante()) {
+            return collect();
+        }
+
+        return $this->clasesComoEstudiante()
+            ->wherePivot('activo', true)
+            ->where('fecha_fin', '>=', now())
+            ->get();
     }
 
     /**
-     * Scope para estudiantes
+     * Verifica si el estudiante está inscrito en una clase
      */
-    public function scopeEstudiantes($query)
+    public function estaInscritoEnClase(Clase $clase): bool
     {
-        return $query->whereHas('tipoUsuario', function ($q) {
-            $q->where('nombre', 'estudiante');
-        });
+        if (!$this->esEstudiante()) {
+            return false;
+        }
+
+        return $this->clasesComoEstudiante()
+            ->where('clase.id', $clase->id)
+            ->wherePivot('activo', true)
+            ->exists();
     }
 
     // ==========================================
@@ -235,7 +272,7 @@ class Usuario extends Authenticatable
     }
 
     /**
-     * Accessor para email (usado por Laravel Auth)
+     * Obtiene el nombre del campo de email
      */
     public function getEmailAttribute()
     {
@@ -243,83 +280,10 @@ class Usuario extends Authenticatable
     }
 
     /**
-     *  Accessor para password (usado por Laravel Auth)
+     * Obtiene el nombre del campo de contraseña
      */
     public function getPasswordAttribute()
     {
         return $this->contraseña_hash;
-    }
-
-    // ==========================================
-    // MÉTODOS ESPECÍFICOS PARA DOCENTES
-    // ==========================================
-
-    /**
-     * Obtiene todas las clases del docente
-     */
-    public function misClases()
-    {
-        if (!$this->esDocente()) {
-            return collect();
-        }
-
-        return $this->docente->clases()->with([
-            'inscripciones.estudiante.usuario',
-            'actividades',
-            'personajes'
-        ])->get();
-    }
-
-    /**
-     * Verifica si el docente puede gestionar una clase
-     */
-    public function puedeGestionarClase($clase): bool
-    {
-        return $this->esDocente() && $this->docente && $clase->id_docente === $this->docente->id;
-    }
-
-    // ==========================================
-    // MÉTODOS ESPECÍFICOS PARA ESTUDIANTES
-    // ==========================================
-
-    /**
-     * Obtiene las clases activas del estudiante
-     */
-    public function clasesActivas()
-    {
-        if (!$this->esEstudiante()) {
-            return collect();
-        }
-
-        return $this->estudiante->clases()->wherePivot('activo', true)->get();
-    }
-
-    /**
-     * Verifica si el estudiante está inscrito en una clase
-     */
-    public function estaInscritoEnClase($clase): bool
-    {
-        if (!$this->esEstudiante()) {
-            return false;
-        }
-
-        return $this->estudiante->inscripciones()
-            ->where('id_clase', $clase->id)
-            ->where('activo', true)
-            ->exists();
-    }
-
-    /**
-     * Obtiene el personaje del estudiante en una clase específica
-     */
-    public function personajeEnClase($clase)
-    {
-        if (!$this->esEstudiante()) {
-            return null;
-        }
-
-        return $this->estudiante->personajes()
-            ->where('id_clase', $clase->id)
-            ->first();
     }
 }

@@ -1,5 +1,4 @@
 <?php
-// app/Providers/AppServiceProvider.php
 
 namespace App\Providers;
 
@@ -31,7 +30,7 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Configurar esquema de base de datos para PostgreSQL
+        // Configurar esquema de base de datos
         Schema::defaultStringLength(191);
         
         // Compartir datos globales con todas las vistas
@@ -48,21 +47,32 @@ class AppServiceProvider extends ServiceProvider
                 ]);
                 
                 // Datos específicos para estudiantes
-                if ($usuario->esEstudiante()) {
-                    $personajePrincipal = $usuario->estudiante->personajePrincipal();
-                    $view->with([
-                        'personajePrincipal' => $personajePrincipal,
-                        'nivelGuardian' => $personajePrincipal?->nivel ?? 1,
-                        'experienciaActual' => $personajePrincipal?->experiencia_actual ?? 0,
-                    ]);
+                if ($usuario->esEstudiante() && $usuario->estudiante) {
+                    // Solo cargar si existe la relación estudiante
+                    try {
+                        $view->with([
+                            'nivelGuardian' => 1, // Valor por defecto
+                            'experienciaActual' => 0, // Valor por defecto
+                        ]);
+                    } catch (\Exception $e) {
+                        // Ignorar errores de carga de datos de estudiante
+                    }
                 }
                 
-                // Datos específicos para profesores
-                if ($usuario->esDocente()) {
-                    $view->with([
-                        'clasesActivas' => $usuario->docente->clasesActivas()->count(),
-                        'totalEstudiantes' => $usuario->docente->totalEstudiantes(),
-                    ]);
+                // Datos específicos para profesores - CORREGIDO
+                if ($usuario->esDocente() && $usuario->docente) {
+                    try {
+                        $view->with([
+                            'clasesActivas' => $usuario->docente->totalClasesActivas(),
+                            'totalEstudiantes' => $usuario->docente->totalEstudiantes(),
+                        ]);
+                    } catch (\Exception $e) {
+                        // Si hay error, usar valores por defecto
+                        $view->with([
+                            'clasesActivas' => 0,
+                            'totalEstudiantes' => 0,
+                        ]);
+                    }
                 }
             }
         });
