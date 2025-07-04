@@ -53,9 +53,6 @@ class Kernel extends HttpKernel
      * @var array<string, class-string|string>
      */
     protected $middlewareAliases = [
-        // ==========================================
-        // MIDDLEWARES BÁSICOS DE LARAVEL
-        // ==========================================
         'auth' => \App\Http\Middleware\Authenticate::class,
         'auth.basic' => \Illuminate\Auth\Middleware\AuthenticateWithBasicAuth::class,
         'auth.session' => \Illuminate\Session\Middleware\AuthenticateSession::class,
@@ -67,17 +64,10 @@ class Kernel extends HttpKernel
         'signed' => \App\Http\Middleware\ValidateSignature::class,
         'throttle' => \Illuminate\Routing\Middleware\ThrottleRequests::class,
         'verified' => \Illuminate\Auth\Middleware\EnsureEmailIsVerified::class,
-
-        // ==========================================
-        // ✅ MIDDLEWARES PERSONALIZADOS - SISTEMA EDUCATIVO
-        // ==========================================
         
-        // Control de tipos de usuario
-          'user.type' => \App\Http\Middleware\CheckUserType::class,
-        
-        // ✅ ALIASES ESPECÍFICOS PARA COMODIDAD
-        'docente' => \App\Http\Middleware\CheckUserType::class,
-        'estudiante' => \App\Http\Middleware\CheckUserType::class,
-        'admin' => \App\Http\Middleware\CheckUserType::class,
+        // ==========================================
+        // MIDDLEWARES PERSONALIZADOS CLASSCRAFT
+        // ==========================================
+        'inscripcion' => \App\Http\Middleware\InscripcionMiddleware::class,
     ];
 }

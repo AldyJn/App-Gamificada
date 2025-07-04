@@ -37,7 +37,7 @@ class DashboardController extends Controller
     private function dashboardProfesor($user)
     {
         // Obtener clases del profesor
-        $clases = Clase::where('docente_id', $user->id)
+        $clases = Clase::where('id_docente', $user->id)
             ->withCount(['estudiantes as total_estudiantes' => function($query) {
                 // Aquí asumo que tienes una tabla pivot o relación
                 // Ajusta según tu estructura real

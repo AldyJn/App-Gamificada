@@ -4,7 +4,10 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Schema;
 
 class Clase extends Model
 {
@@ -35,23 +38,14 @@ class Clase extends Model
         'configuracion_gamificacion' => 'array'
     ];
 
-    /**
-     * Generar un código único para la clase
-     */
-    public static function generarCodigoUnico()
-    {
-        do {
-            // Generar código de 6 caracteres aleatorios
-            $codigo = strtoupper(Str::random(6));
-        } while (self::where('codigo', $codigo)->exists());
-        
-        return $codigo;
-    }
+    // ==========================================
+    // RELACIONES
+    // ==========================================
 
     /**
      * Relación con el docente
      */
-    public function docente()
+    public function docente(): BelongsTo
     {
         return $this->belongsTo(Usuario::class, 'id_docente');
     }
@@ -59,16 +53,52 @@ class Clase extends Model
     /**
      * Relación many-to-many con estudiantes
      */
-    public function estudiantes()
+    public function estudiantes(): BelongsToMany
     {
-        return $this->belongsToMany(Usuario::class, 'inscripcion_clase', 'id_clase', 'id_estudiante')
+        // Verificar qué tabla existe para usar la correcta
+        if (Schema::hasTable('inscripcion_clase')) {
+            return $this->belongsToMany(
+                Usuario::class, 
+                'inscripcion_clase', 
+                'id_clase', 
+                'id_estudiante'
+            )->withTimestamps()
+             ->withPivot(['activo', 'fecha_ingreso']);
+        }
+        
+        // Fallback a tabla estándar
+        return $this->belongsToMany(Usuario::class, 'clase_usuario')
                     ->withTimestamps();
     }
+
+    // ==========================================
+    // MÉTODOS ESTÁTICOS
+    // ==========================================
+
+    /**
+     * Generar código único para la clase
+     */
+    public static function generarCodigoUnico(): string
+    {
+        do {
+            // Generar código: 3 letras + 3 números (ej: ABC123)
+            $letras = strtoupper(Str::random(3));
+            $numeros = str_pad(mt_rand(1, 999), 3, '0', STR_PAD_LEFT);
+            $codigo = $letras . $numeros;
+            
+        } while (self::where('codigo', $codigo)->exists());
+        
+        return $codigo;
+    }
+
+    // ==========================================
+    // MÉTODOS DE UTILIDAD
+    // ==========================================
 
     /**
      * Verificar si la clase está activa
      */
-    public function estaActiva()
+    public function estaActiva(): bool
     {
         return $this->activa && 
                $this->fecha_inicio <= now() && 
@@ -76,11 +106,10 @@ class Clase extends Model
     }
 
     /**
-     * Obtener progreso de la clase (placeholder)
+     * Obtener progreso de la clase basado en fechas
      */
-    public function obtenerProgreso()
+    public function obtenerProgreso(): int
     {
-        // Calcular progreso basado en fechas
         $inicio = $this->fecha_inicio;
         $fin = $this->fecha_fin;
         $hoy = now();
@@ -95,43 +124,135 @@ class Clase extends Model
 
         // Calcular porcentaje de progreso
         $totalDias = $inicio->diffInDays($fin);
+        if ($totalDias <= 0) {
+            return 100;
+        }
+        
         $diasTranscurridos = $inicio->diffInDays($hoy);
-
-        return $totalDias > 0 ? round(($diasTranscurridos / $totalDias) * 100, 1) : 0;
+        return min(100, round(($diasTranscurridos / $totalDias) * 100));
     }
 
     /**
-     * Agregar un estudiante a la clase
+     * Agregar estudiante a la clase
      */
-    public function agregarEstudiante(Usuario $estudiante)
+    public function agregarEstudiante($usuarioId): bool
     {
-        // Verificar si ya está inscrito
-        if ($this->estudiantes()->where('id_estudiante', $estudiante->id)->exists()) {
+        try {
+            // Verificar si ya está inscrito
+            if ($this->estudiantes()->where('usuario.id', $usuarioId)->exists()) {
+                return false;
+            }
+
+            // Inscribir usando la tabla correcta
+            if (Schema::hasTable('inscripcion_clase')) {
+                $this->estudiantes()->attach($usuarioId, [
+                    'activo' => true,
+                    'fecha_ingreso' => now(),
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+            } else {
+                $this->estudiantes()->attach($usuarioId, [
+                    'created_at' => now(),
+                    'updated_at' => now()
+                ]);
+            }
+            
+            return true;
+            
+        } catch (\Exception $e) {
+            \Log::error('Error agregando estudiante: ' . $e->getMessage());
             return false;
         }
-
-        // Agregar el estudiante
-        $this->estudiantes()->attach($estudiante->id, [
-            'created_at' => now(),
-            'updated_at' => now()
-        ]);
-
-        return true;
     }
 
     /**
-     * Remover un estudiante de la clase
+     * Obtener total de estudiantes activos
      */
-    public function removerEstudiante(Usuario $estudiante)
+    public function totalEstudiantes(): int
     {
-        return $this->estudiantes()->detach($estudiante->id) > 0;
+        try {
+            if (Schema::hasTable('inscripcion_clase')) {
+                return $this->estudiantes()->wherePivot('activo', true)->count();
+            }
+            
+            return $this->estudiantes()->count();
+            
+        } catch (\Exception $e) {
+            \Log::error('Error contando estudiantes: ' . $e->getMessage());
+            return 0;
+        }
     }
 
     /**
-     * Seleccionar un estudiante al azar de la clase
+     * Verificar si permite inscripciones
      */
-    public function seleccionarEstudianteAleatorio()
+    public function permiteInscripciones(): bool
     {
-        return $this->estudiantes()->inRandomOrder()->first();
+        return $this->permitir_inscripcion && 
+               $this->activa && 
+               !$this->fecha_fin->isPast();
+    }
+
+    /**
+     * Regenerar código de la clase
+     */
+    public function regenerarCodigo(): string
+    {
+        $nuevoCodigo = self::generarCodigoUnico();
+        $this->update(['codigo' => $nuevoCodigo]);
+        return $nuevoCodigo;
+    }
+
+    /**
+     * Obtener estudiantes activos con información completa
+     */
+    public function estudiantesActivos()
+    {
+        $query = $this->estudiantes()->orderBy('nombre');
+        
+        if (Schema::hasTable('inscripcion_clase')) {
+            $query->wherePivot('activo', true);
+        }
+        
+        return $query->get();
+    }
+
+    // ==========================================
+    // SCOPES
+    // ==========================================
+
+    /**
+     * Scope para clases activas
+     */
+    public function scopeActivas($query)
+    {
+        return $query->where('activa', true);
+    }
+
+    /**
+     * Scope para clases de un docente específico
+     */
+    public function scopeDeDocente($query, $docenteId)
+    {
+        return $query->where('id_docente', $docenteId);
+    }
+
+    /**
+     * Scope para buscar por código
+     */
+    public function scopePorCodigo($query, $codigo)
+    {
+        return $query->where('codigo', strtoupper(trim($codigo)));
+    }
+
+    /**
+     * Scope para clases que permiten inscripción
+     */
+    public function scopeQuePermitenInscripcion($query)
+    {
+        return $query->where('permitir_inscripcion', true)
+                     ->where('activa', true)
+                     ->where('fecha_fin', '>=', now());
     }
 }
