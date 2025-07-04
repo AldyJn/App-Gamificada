@@ -1,7 +1,7 @@
 <?php
 
 namespace App\Http\Controllers\Estudiante;
-
+use App\Http\Controllers\Controller;
 use App\Models\{
     Estudiante, 
     Personaje,
@@ -22,7 +22,7 @@ class EstudianteController extends Controller
     // ==========================================
     // DASHBOARD PRINCIPAL (Lo mejor del segundo)
     // ==========================================
-    public function dashboard()
+ public function dashboard()
     {
         $user = Auth::user();
         $estudiante = $user->estudiante;
@@ -56,15 +56,16 @@ class EstudianteController extends Controller
                     'personaje' => $personaje ? [
                         'nombre' => $personaje->nombre_personaje,
                         'nivel' => $personaje->nivel,
-                        'salud' => $personaje->porcentajeVida()
+                        'clase_rpg' => $personaje->claseRpg->nombre,
+                        'avatar' => $personaje->avatar_url
                     ] : null
                 ];
             });
 
-        // Ranking de la clase principal (del segundo)
+        // Ranking de la clase principal
         $rankingClase = $this->obtenerRankingClase($estudiante);
 
-        // Logros cercanos a completar (del primero)
+        // Logros cercanos a completar
         $logrosCercanos = $this->getLogrosCercanos($estudiante);
 
         return Inertia::render('Estudiante/Dashboard', [
@@ -75,7 +76,6 @@ class EstudianteController extends Controller
             'personaje_principal' => $personajePrincipal
         ]);
     }
-
     // ==========================================
     // SISTEMA DE RANKINGS (Lo mejor del primero)
     // ==========================================
@@ -180,8 +180,63 @@ class EstudianteController extends Controller
     // ==========================================
     // MÉTODOS AUXILIARES COMBINADOS
     // ==========================================
+/**
+     * Calcular el rango global del estudiante
+     */
+    private function calcularRangoGlobal($estudiante)
+    {
+        $personajePrincipal = $estudiante->personajePrincipal();
+        
+        if (!$personajePrincipal) {
+            return null;
+        }
 
-    // Del primer controlador (mejorado)
+        // Contar estudiantes con mayor power level
+        $estudiantesConMayorPower = DB::table('personajes')
+            ->where('power_level', '>', $personajePrincipal->power_level)
+            ->count();
+
+        return $estudiantesConMayorPower + 1; // Posición del estudiante
+    }
+
+    /**
+     * Obtener logros cercanos a completar
+     */
+    private function getLogrosCercanos($estudiante)
+    {
+        $logros = Badge::whereNotExists(function($query) use ($estudiante) {
+            $query->select(DB::raw(1))
+                  ->from('badge_estudiante')
+                  ->whereColumn('badge_estudiante.badge_id', 'badges.id')
+                  ->where('badge_estudiante.estudiante_id', $estudiante->id);
+        })
+        ->get()
+        ->map(function($logro) use ($estudiante) {
+            $progreso = $this->calcularProgresoLogro($logro, $estudiante);
+            $progresoTotal = collect($progreso)->avg('porcentaje');
+            
+            return [
+                'id' => $logro->id,
+                'nombre' => $logro->nombre,
+                'descripcion' => $logro->descripcion,
+                'progreso_porcentaje' => round($progresoTotal),
+                'progreso_detalle' => $progreso,
+                'imagen' => $logro->imagen_url ?? '/images/badges/default.png'
+            ];
+        })
+        ->filter(function($logro) {
+            return $logro['progreso_porcentaje'] >= 50; // Solo logros con 50% o más
+        })
+        ->sortByDesc('progreso_porcentaje')
+        ->take(3)
+        ->values();
+
+        return $logros;
+    }
+
+    /**
+     * Calcular progreso de un logro específico
+     */
     private function calcularProgresoLogro(Badge $logro, Estudiante $estudiante): array
     {
         $requisitos = json_decode($logro->requisitos, true) ?? [];
@@ -189,34 +244,57 @@ class EstudianteController extends Controller
         
         foreach ($requisitos as $key => $valorRequerido) {
             $valorActual = match($key) {
-                'nivel' => $estudiante->personajePrincipal()->nivel,
-                'actividades' => $estudiante->actividadesCompletadas()->count(),
+                'nivel' => $estudiante->personajePrincipal()?->nivel ?? 0,
+                'actividades' => $estudiante->actividadesCompletadas()?->count() ?? 0,
+                'clases_completadas' => $estudiante->clasesCompletadas()?->count() ?? 0,
+                'puntos_totales' => $estudiante->personajePrincipal()?->power_level ?? 0,
+                'dias_consecutivos' => $this->calcularDiasConsecutivos($estudiante),
                 default => 0
             };
             
             $progreso[$key] = [
                 'actual' => $valorActual,
                 'requerido' => $valorRequerido,
-                'porcentaje' => min(100, ($valorActual / $valorRequerido) * 100)
+                'porcentaje' => min(100, ($valorActual / max($valorRequerido, 1)) * 100)
             ];
         }
 
         return $progreso;
     }
 
-    // Del segundo controlador (optimizado)
+    /**
+     * Obtener ranking de clase
+     */
     private function obtenerRankingClase(Estudiante $estudiante): array
     {
-        return $estudiante->clases()->first()
-            ?->personajes()
+        $claseActiva = $estudiante->clases()->where('activo', true)->first();
+        
+        if (!$claseActiva) {
+            return [];
+        }
+
+        return $claseActiva->personajes()
             ->with('estudiante.usuario')
-            ->orderByDesc('nivel')
+            ->orderByDesc('power_level')
             ->limit(5)
             ->get()
-            ->map(fn($p) => [
-                'nombre' => $p->estudiante->usuario->nombre,
-                'nivel' => $p->nivel,
-                'es_yo' => $p->id_estudiante === $estudiante->id
-            ]) ?? [];
+            ->map(function($personaje, $index) use ($estudiante) {
+                return [
+                    'posicion' => $index + 1,
+                    'nombre' => $personaje->estudiante->usuario->nombre,
+                    'personaje_nombre' => $personaje->nombre_personaje,
+                    'nivel' => $personaje->nivel,
+                    'power_level' => $personaje->power_level,
+                    'es_yo' => $personaje->id_estudiante === $estudiante->id,
+                    'avatar' => $personaje->avatar_url ?? '/images/avatars/default.png'
+                ];
+            })
+            ->toArray();
+    }
+      private function calcularDiasConsecutivos(Estudiante $estudiante): int
+    {
+        // Implementar lógica para calcular días consecutivos
+        // Esto dependería de tu tabla de actividades/historial
+        return 0; // Placeholder por ahora
     }
 }

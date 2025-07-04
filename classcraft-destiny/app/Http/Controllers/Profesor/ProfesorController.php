@@ -8,9 +8,12 @@ use App\Models\{Clase, Estudiante, Usuario, InscripcionClase, TipoComportamiento
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use SimpleSoftwareIO\QrCode\Facades\QrCode;
+use Illuminate\Foundation\Auth\Access\AuthorizesRequests;
+use Carbon\Carbon;
 
 class ProfesorController extends Controller
 {
+     use AuthorizesRequests;
     /**
      * Dashboard principal del profesor - Vista tipo "Carta Estelar"
      */
@@ -301,55 +304,42 @@ class ProfesorController extends Controller
     /**
      * Calcular progreso de la clase
      */
-    private function calcularProgresoClase(Clase $clase): float
+    private function calcularProgresoClase($clase)
     {
-        $fechaInicio = $clase->fecha_inicio;
-        $fechaFin = $clase->fecha_fin;
-        $hoy = now()->toDateString();
+        $fechaInicio = Carbon::parse($clase->fecha_inicio);
+        $fechaFin = Carbon::parse($clase->fecha_fin);
+        $ahora = Carbon::now();
 
-        if ($hoy < $fechaInicio) {
+        if ($ahora->isBefore($fechaInicio)) {
             return 0;
         }
 
-        if ($hoy > $fechaFin) {
+        if ($ahora->isAfter($fechaFin)) {
             return 100;
         }
 
-        $totalDias = $fechaInicio->diffInDays($fechaFin);
-        $diasTranscurridos = $fechaInicio->diffInDays($hoy);
+        $diasTotales = $fechaInicio->diffInDays($fechaFin);
+        $diasTranscurridos = $fechaInicio->diffInDays($ahora);
 
-        return ($diasTranscurridos / $totalDias) * 100;
+        return round(($diasTranscurridos / $diasTotales) * 100);
     }
-
     /**
      * Obtener alertas de la clase
      */
-    private function obtenerAlertasClase(Clase $clase): array
+     private function obtenerAlertasClase($clase)
     {
         $alertas = [];
-
-        // Verificar estudiantes con salud baja
-        $estudiantesCriticos = $clase->personajes()
-            ->whereRaw('(salud_actual::float / salud_maxima::float) < 0.3')
-            ->count();
-
-        if ($estudiantesCriticos > 0) {
+        
+        $fechaFin = Carbon::parse($clase->fecha_fin);
+        $diasRestantes = Carbon::now()->diffInDays($fechaFin);
+        
+        if ($diasRestantes <= 7) {
             $alertas[] = [
                 'tipo' => 'warning',
-                'mensaje' => "{$estudiantesCriticos} estudiante(s) en estado crítico",
-                'icono' => '⚠️'
+                'mensaje' => "La clase termina en {$diasRestantes} días"
             ];
         }
-
-        // Verificar si la clase está por terminar
-        if ($clase->fecha_fin->diffInDays(now()) <= 7) {
-            $alertas[] = [
-                'tipo' => 'info',
-                'mensaje' => 'La clase termina en ' . $clase->fecha_fin->diffInDays(now()) . ' días',
-                'icono' => '📅'
-            ];
-        }
-
+        
         return $alertas;
     }
 }

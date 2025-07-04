@@ -807,7 +807,48 @@ const getClassDescription = (classId) => {
 const getClassAbilities = (classId) => {
   return guardianClasses[classId]?.abilities || []
 }
+const submitRegistration = () => {
+  // Validar que todos los campos estén llenos
+  if (!form.nombre || !form.apellido || !form.correo || !form.password || !form.password_confirmation) {
+    form.setError('general', 'Por favor complete todos los campos obligatorios')
+    return
+  }
 
+  // Validar que las contraseñas coincidan
+  if (form.password !== form.password_confirmation) {
+    form.setError('password_confirmation', 'Las contraseñas no coinciden')
+    return
+  }
+
+  // Validar que se haya seleccionado un tipo de usuario
+  if (!form.id_tipo_usuario) {
+    form.setError('id_tipo_usuario', 'Debe seleccionar un tipo de usuario')
+    return
+  }
+
+  // Validar que se hayan aceptado los términos
+  if (!form.terminos) {
+    form.setError('terminos', 'Debe aceptar los términos y condiciones')
+    return
+  }
+
+  // Enviar formulario
+  form.post(route('register'), {
+    preserveScroll: true,
+    onSuccess: (page) => {
+      console.log('Registro exitoso:', page)
+      // El usuario será redirigido automáticamente al dashboard
+    },
+    onError: (errors) => {
+      console.error('Errores en el registro:', errors)
+      // Los errores se mostrarán automáticamente en el formulario
+    },
+    onFinish: () => {
+      // Se ejecuta siempre al final
+      console.log('Petición de registro terminada')
+    }
+  })
+}
 const getClassGradient = (classId) => {
   return `bg-gradient-to-br ${guardianClasses[classId]?.gradient || 'from-gray-600 to-gray-800'}`
 }
