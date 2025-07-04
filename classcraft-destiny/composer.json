@@ -14,7 +14,8 @@
         "pusher/pusher-php-server": "7.2",
         "simplesoftwareio/simple-qrcode": "4.2",
         "spatie/laravel-permission": "6.4",
-        "spatie/laravel-query-builder": "5.8"
+        "spatie/laravel-query-builder": "5.8",
+        "tightenco/ziggy": "^2.5"
     },
     "require-dev": {
         "barryvdh/laravel-debugbar": "3.10",

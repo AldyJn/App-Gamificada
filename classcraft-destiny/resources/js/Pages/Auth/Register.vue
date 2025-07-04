@@ -708,7 +708,7 @@
 <script setup>
 import { ref, computed, reactive, onMounted } from 'vue'
 import { Head, Link, useForm } from '@inertiajs/vue3'
-
+import { route } from 'ziggy-js'
 // Props del componente
 const props = defineProps({
   mustVerifyEmail: Boolean,
