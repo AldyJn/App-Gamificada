@@ -1,10 +1,14 @@
 <?php
 
-// ===== app/Models/TipoUsuario.php =====
+// ==========================================
+// app/Models/TipoUsuario.php
+// ==========================================
+
 namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class TipoUsuario extends Model
 {
@@ -14,22 +18,21 @@ class TipoUsuario extends Model
 
     protected $fillable = [
         'nombre',
-        'descripcion',
+        'descripcion'
     ];
 
-    /**
-     * Relación con usuarios
-     */
-    public function usuarios()
+    public function usuarios(): HasMany
     {
         return $this->hasMany(Usuario::class, 'id_tipo_usuario');
     }
 
-    /**
-     * Scope para obtener tipo específico
-     */
-    public function scopeTipo($query, $nombre)
+    public static function docente(): ?self
     {
-        return $query->where('nombre', $nombre);
+        return static::where('nombre', 'docente')->first();
+    }
+
+    public static function estudiante(): ?self
+    {
+        return static::where('nombre', 'estudiante')->first();
     }
 }

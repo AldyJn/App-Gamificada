@@ -1,16 +1,16 @@
 <?php
-// routes/api.php
+// routes/api.php - CORREGIDO CON CONTROLADORES EXISTENTES
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
-use App\Http\Controllers\Api\{
-    AuthApiController,
-    ProfesorApiController,
-    EstudianteApiController,
-    PersonajeApiController,
-    ClaseApiController
+use App\Http\Controllers\Auth\AuthController;
+use App\Http\Controllers\Profesor\ProfesorController;
+use App\Http\Controllers\EstudianteController;  
+use App\Http\Controllers\Estudiante\{
+    PersonajeController,
+    RankingController,
+    LogroController
 };
-
 /*
 |--------------------------------------------------------------------------
 | API Routes - ClassCraft Destiny System
@@ -19,13 +19,13 @@ use App\Http\Controllers\Api\{
 
 // ===== AUTENTICACIÓN API =====
 Route::prefix('auth')->name('api.auth.')->group(function () {
-    Route::post('/login', [AuthApiController::class, 'login'])->name('login');
-    Route::post('/register', [AuthApiController::class, 'register'])->name('register');
+    Route::post('/login', [AuthController::class, 'login'])->name('login');
+    Route::post('/register', [AuthController::class, 'register'])->name('register');
     
     Route::middleware('auth:sanctum')->group(function () {
-        Route::post('/logout', [AuthApiController::class, 'logout'])->name('logout');
-        Route::get('/me', [AuthApiController::class, 'me'])->name('me');
-        Route::put('/profile', [AuthApiController::class, 'updateProfile'])->name('profile.update');
+        Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
+        Route::get('/me', [AuthController::class, 'me'])->name('me');
+        Route::put('/profile', [AuthController::class, 'updateProfile'])->name('profile.update');
     });
 });
 
@@ -36,37 +36,37 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:profesor')->prefix('profesor')->name('api.profesor.')->group(function () {
         
         // Dashboard y estadísticas
-        Route::get('/dashboard', [ProfesorApiController::class, 'dashboard'])->name('dashboard');
-        Route::get('/estadisticas', [ProfesorApiController::class, 'estadisticas'])->name('estadisticas');
+        Route::get('/dashboard', [ProfesorController::class, 'dashboard'])->name('dashboard');
+        Route::get('/estadisticas', [ProfesorController::class, 'estadisticas'])->name('estadisticas');
         
         // Gestión de clases
-        Route::get('/clases', [ProfesorApiController::class, 'misClases'])->name('clases.index');
-        Route::post('/clases', [ProfesorApiController::class, 'crearClase'])->name('clases.store');
-        Route::get('/clases/{clase}', [ProfesorApiController::class, 'mostrarClase'])->name('clases.show');
-        Route::put('/clases/{clase}', [ProfesorApiController::class, 'actualizarClase'])->name('clases.update');
-        Route::delete('/clases/{clase}', [ProfesorApiController::class, 'eliminarClase'])->name('clases.destroy');
+        Route::get('/clases', [ProfesorController::class, 'misClases'])->name('clases.index');
+        Route::post('/clases', [ProfesorController::class, 'crearClase'])->name('clases.store');
+        Route::get('/clases/{clase}', [ProfesorController::class, 'mostrarClase'])->name('clases.show');
+        Route::put('/clases/{clase}', [ProfesorController::class, 'actualizarClase'])->name('clases.update');
+        Route::delete('/clases/{clase}', [ProfesorController::class, 'eliminarClase'])->name('clases.destroy');
         
         // Gestión de estudiantes en clase
-        Route::post('/clases/{clase}/estudiantes', [ProfesorApiController::class, 'agregarEstudiante'])
+        Route::post('/clases/{clase}/estudiantes', [ProfesorController::class, 'agregarEstudiante'])
              ->name('clases.estudiantes.add');
-        Route::delete('/clases/{clase}/estudiantes/{estudiante}', [ProfesorApiController::class, 'removerEstudiante'])
+        Route::delete('/clases/{clase}/estudiantes/{estudiante}', [ProfesorController::class, 'removerEstudiante'])
              ->name('clases.estudiantes.remove');
-        Route::get('/clases/{clase}/estudiante-aleatorio', [ProfesorApiController::class, 'estudianteAleatorio'])
+        Route::get('/clases/{clase}/estudiante-aleatorio', [ProfesorController::class, 'estudianteAleatorio'])
              ->name('clases.estudiante-aleatorio');
         
         // Sistema de comportamientos
-        Route::post('/clases/{clase}/comportamientos', [ProfesorApiController::class, 'aplicarComportamiento'])
+        Route::post('/clases/{clase}/comportamientos', [ProfesorController::class, 'aplicarComportamiento'])
              ->middleware('throttle:20,1')
              ->name('clases.comportamientos.apply');
-        Route::get('/clases/{clase}/comportamientos/historial', [ProfesorApiController::class, 'historialComportamientos'])
+        Route::get('/clases/{clase}/comportamientos/historial', [ProfesorController::class, 'historialComportamientos'])
              ->name('clases.comportamientos.history');
         
         // Herramientas
-        Route::get('/estudiantes/buscar', [ProfesorApiController::class, 'buscarEstudiantes'])
+        Route::get('/estudiantes/buscar', [ProfesorController::class, 'buscarEstudiantes'])
              ->name('estudiantes.search');
-        Route::post('/clases/{clase}/regenerar-qr', [ProfesorApiController::class, 'regenerarQR'])
+        Route::post('/clases/{clase}/regenerar-qr', [ProfesorController::class, 'regenerarQR'])
              ->name('clases.regenerate-qr');
-        Route::get('/clases/{clase}/exportar', [ProfesorApiController::class, 'exportarDatos'])
+        Route::get('/clases/{clase}/exportar', [ProfesorController::class, 'exportarDatos'])
              ->name('clases.export');
     });
     
@@ -74,127 +74,85 @@ Route::middleware('auth:sanctum')->group(function () {
     Route::middleware('role:estudiante')->prefix('estudiante')->name('api.estudiante.')->group(function () {
         
         // Dashboard y perfil
-        Route::get('/dashboard', [EstudianteApiController::class, 'dashboard'])->name('dashboard');
-        Route::get('/perfil', [EstudianteApiController::class, 'perfil'])->name('profile');
-        Route::put('/perfil', [EstudianteApiController::class, 'actualizarPerfil'])->name('profile.update');
+        Route::get('/dashboard', [EstudianteController::class, 'dashboard'])->name('dashboard');
+        Route::get('/perfil', [EstudianteController::class, 'perfil'])->name('profile');
+        Route::put('/perfil', [EstudianteController::class, 'actualizarPerfil'])->name('profile.update');
         
         // Gestión de clases
-        Route::get('/clases', [EstudianteApiController::class, 'misClases'])->name('clases.index');
-        Route::post('/clases/unirse', [EstudianteApiController::class, 'unirseClase'])
+        Route::get('/clases', [EstudianteController::class, 'misClases'])->name('clases.index');
+        Route::post('/clases/unirse', [EstudianteController::class, 'unirseClase'])
              ->middleware('throttle:join-class')
              ->name('clases.join');
-        Route::post('/clases/{clase}/salir', [EstudianteApiController::class, 'salirDeClase'])
+        Route::post('/clases/{clase}/salir', [EstudianteController::class, 'salirDeClase'])
              ->name('clases.leave');
         
         // Gestión de personajes
-        Route::get('/personajes', [EstudianteApiController::class, 'misPersonajes'])->name('personajes.index');
-        Route::post('/clases/{clase}/personajes', [EstudianteApiController::class, 'crearPersonaje'])
+        Route::get('/personajes', [EstudianteController::class, 'misPersonajes'])->name('personajes.index');
+        Route::post('/clases/{clase}/personajes', [EstudianteController::class, 'crearPersonaje'])
              ->name('personajes.create');
-        Route::get('/personajes/{personaje}', [EstudianteApiController::class, 'mostrarPersonaje'])
-             ->name('personajes.show');
-        Route::put('/personajes/{personaje}/personalizar', [EstudianteApiController::class, 'personalizarPersonaje'])
-             ->name('personajes.customize');
+     //    Route::get('/personajes/{personaje}', [PersonajeController::class, 'show'])
+     //         ->name('personajes.show');
+     //    Route::put('/personajes/{personaje}/personalizar', [PersonajeController::class, 'personalizar'])
+     //         ->name('personajes.customize');
         
         // Rankings y logros
-        Route::get('/rankings', [EstudianteApiController::class, 'rankings'])->name('rankings');
-        Route::get('/rankings/{clase}', [EstudianteApiController::class, 'rankingClase'])->name('rankings.clase');
-        Route::get('/logros', [EstudianteApiController::class, 'logros'])->name('achievements');
-        Route::get('/historial', [EstudianteApiController::class, 'historial'])->name('history');
+     //    Route::get('/rankings', [RankingController::class, 'index'])->name('rankings');
+     //    Route::get('/rankings/{clase}', [RankingController::class, 'rankingClase'])->name('rankings.clase');
+     //    Route::get('/logros', [LogroController::class, 'index'])->name('achievements');
+        Route::get('/historial', [EstudianteController::class, 'historial'])->name('history');
         
-        // Notificaciones
-        Route::get('/notificaciones', [EstudianteApiController::class, 'notificaciones'])->name('notifications');
-        Route::put('/notificaciones/{notificacion}/leer', [EstudianteApiController::class, 'marcarNotificacionLeida'])
+        // Notificaciones (si existen métodos)
+        Route::get('/notificaciones', [EstudianteController::class, 'notificaciones'])->name('notifications');
+        Route::put('/notificaciones/{notificacion}/leer', [EstudianteController::class, 'marcarNotificacionLeida'])
              ->name('notifications.read');
-        Route::put('/notificaciones/leer-todas', [EstudianteApiController::class, 'marcarTodasLeidas'])
+        Route::put('/notificaciones/leer-todas', [EstudianteController::class, 'marcarTodasLeidas'])
              ->name('notifications.read-all');
     });
     
-    // ===== API PERSONAJES (Accesible por propietario y profesor de la clase) =====
-    Route::prefix('personajes')->name('api.personajes.')->group(function () {
+//     // ===== API PERSONAJES =====
+//     Route::prefix('personajes')->name('api.personajes.')->group(function () {
         
-        // Estadísticas y datos básicos
-        Route::get('/{personaje}', [PersonajeApiController::class, 'show'])
-             ->middleware('can:view,personaje')
-             ->name('show');
-        Route::get('/{personaje}/estadisticas', [PersonajeApiController::class, 'estadisticas'])
-             ->middleware('can:view,personaje')
-             ->name('stats');
+//         // Estadísticas y datos básicos
+//         Route::get('/{personaje}', [PersonajeController::class, 'show'])
+//              ->middleware('can:view,personaje')
+//              ->name('show');
+//         Route::get('/{personaje}/estadisticas', [PersonajeController::class, 'estadisticas'])
+//              ->middleware('can:view,personaje')
+//              ->name('stats');
         
-        // Sistema de experiencia y niveles
-        Route::post('/{personaje}/experiencia', [PersonajeApiController::class, 'ganarExperiencia'])
-             ->middleware('can:update,personaje')
-             ->middleware('throttle:20,1')
-             ->name('gain-xp');
+//         // Sistema de experiencia y niveles
+//         Route::post('/{personaje}/experiencia', [PersonajeController::class, 'ganarExperiencia'])
+//              ->middleware('can:update,personaje')
+//              ->middleware('throttle:20,1')
+//              ->name('gain-xp');
         
-        // Sistema de habilidades
-        Route::post('/{personaje}/habilidades/{habilidad}', [PersonajeApiController::class, 'usarHabilidad'])
-             ->middleware('can:usar-habilidad,personaje')
-             ->middleware('throttle:use-ability')
-             ->name('use-ability');
-        Route::get('/{personaje}/habilidades/disponibles', [PersonajeApiController::class, 'habilidadesDisponibles'])
-             ->middleware('can:view,personaje')
-             ->name('available-abilities');
+//         // Sistema de habilidades
+//         Route::post('/{personaje}/habilidades/{habilidad}', [PersonajeController::class, 'usarHabilidad'])
+//              ->middleware('can:usar-habilidad,personaje')
+//              ->middleware('throttle:use-ability')
+//              ->name('use-ability');
+//         Route::get('/{personaje}/habilidades/disponibles', [PersonajeController::class, 'habilidadesDisponibles'])
+//              ->middleware('can:view,personaje')
+//              ->name('available-abilities');
         
-        // Sistema de equipamiento
-        Route::put('/{personaje}/equipamiento', [PersonajeApiController::class, 'cambiarEquipamiento'])
-             ->middleware('can:update,personaje')
-             ->name('change-equipment');
-        Route::get('/{personaje}/equipamiento/disponible', [PersonajeApiController::class, 'equipamientoDisponible'])
-             ->middleware('can:view,personaje')
-             ->name('available-equipment');
+//         // Sistema de equipamiento
+//         Route::put('/{personaje}/equipamiento', [PersonajeController::class, 'cambiarEquipamiento'])
+//              ->middleware('can:update,personaje')
+//              ->name('change-equipment');
+//         Route::get('/{personaje}/equipamiento/disponible', [PersonajeController::class, 'equipamientoDisponible'])
+//              ->middleware('can:view,personaje')
+//              ->name('available-equipment');
         
-        // Accesorios y personalización
-        Route::get('/{personaje}/accesorios', [PersonajeApiController::class, 'accesoriosDisponibles'])
-             ->middleware('can:view,personaje')
-             ->name('accessories');
-        Route::post('/{personaje}/accesorios/{accesorio}', [PersonajeApiController::class, 'equiparAccesorio'])
-             ->middleware('can:update,personaje')
-             ->name('equip-accessory');
-        
-        // Interacciones sociales
-        Route::post('/{personaje}/revivir/{objetivo}', [PersonajeApiController::class, 'revivirCompañero'])
-             ->middleware('can:usar-habilidad,personaje')
-             ->middleware('throttle:use-ability')
-             ->name('revive-teammate');
-        Route::post('/{personaje}/curar', [PersonajeApiController::class, 'autoConsumirse'])
-             ->middleware('can:usar-habilidad,personaje')
-             ->middleware('throttle:use-ability')
-             ->name('self-heal');
-    });
-    
-    // ===== API CLASES (Información general y públicos) =====
-    Route::prefix('clases')->name('api.clases.')->group(function () {
-        
-        // Información básica de clases (accesible por miembros)
-        Route::get('/{clase}', [ClaseApiController::class, 'show'])
-             ->middleware('can:acceder-clase,clase')
-             ->name('show');
-        Route::get('/{clase}/estudiantes', [ClaseApiController::class, 'estudiantes'])
-             ->middleware('can:acceder-clase,clase')
-             ->name('students');
-        Route::get('/{clase}/estadisticas', [ClaseApiController::class, 'estadisticas'])
-             ->middleware('can:acceder-clase,clase')
-             ->name('stats');
-        
-        // Rankings y leaderboards
-        Route::get('/{clase}/ranking', [ClaseApiController::class, 'ranking'])
-             ->middleware('can:acceder-clase,clase')
-             ->name('ranking');
-        Route::get('/{clase}/actividad-reciente', [ClaseApiController::class, 'actividadReciente'])
-             ->middleware('can:acceder-clase,clase')
-             ->name('recent-activity');
-        
-        // Validación de códigos de invitación
-        Route::post('/validar-codigo', [ClaseApiController::class, 'validarCodigo'])
-             ->name('validate-code');
-    });
-    
-    // ===== API CLASES RPG =====
-    Route::prefix('clases-rpg')->name('api.clases-rpg.')->group(function () {
-        Route::get('/', [ClaseRpgController::class, 'index'])->name('index');
-        Route::get('/{claseRpg}', [ClaseRpgController::class, 'show'])->name('show');
-        Route::get('/{claseRpg}/builds-recomendados', [ClaseRpgController::class, 'buildsRecomendados'])->name('builds');
-    });
+//         // Interacciones sociales
+//         Route::post('/{personaje}/revivir/{objetivo}', [PersonajeController::class, 'revivirCompañero'])
+//              ->middleware('can:usar-habilidad,personaje')
+//              ->middleware('throttle:use-ability')
+//              ->name('revive-teammate');
+//         Route::post('/{personaje}/curar', [PersonajeController::class, 'autoConsumirse'])
+//              ->middleware('can:usar-habilidad,personaje')
+//              ->middleware('throttle:use-ability')
+//              ->name('self-heal');
+//     });
     
     // ===== API UTILIDADES GENERALES =====
     Route::prefix('utils')->name('api.utils.')->group(function () {

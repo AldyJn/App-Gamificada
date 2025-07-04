@@ -1,5 +1,4 @@
 <?php
-// app/Models/Usuario.php - ACTUALIZACIÓN COMPLETA
 
 namespace App\Models;
 
@@ -7,16 +6,19 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Laravel\Sanctum\HasApiTokens;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 
 class Usuario extends Authenticatable
 {
     use HasApiTokens, HasFactory, Notifiable;
 
     protected $table = 'usuario';
-    
+
     protected $fillable = [
         'nombre',
-        'apellido',
         'correo',
         'avatar',
         'contraseña_hash',
@@ -24,10 +26,7 @@ class Usuario extends Authenticatable
         'id_tipo_usuario',
         'id_estado',
         'ultimo_acceso',
-        'timezone',
-        'notificaciones_push',
-        'configuracion_ui',
-        'estadisticas_globales'
+        'eliminado'
     ];
 
     protected $hidden = [
@@ -38,16 +37,240 @@ class Usuario extends Authenticatable
 
     protected $casts = [
         'ultimo_acceso' => 'datetime',
-        'notificaciones_push' => 'boolean',
-        'configuracion_ui' => 'array',
-        'estadisticas_globales' => 'array',
+        'eliminado' => 'boolean',
         'email_verified_at' => 'datetime',
     ];
 
-    // ===== MÉTODOS DE AUTENTICACIÓN LARAVEL =====
-    
+    // ==========================================
+    // RELACIONES
+    // ==========================================
+
     /**
-     * Get the password for the user.
+     * Relación con tipo de usuario
+     */
+    public function tipoUsuario(): BelongsTo
+    {
+        return $this->belongsTo(TipoUsuario::class, 'id_tipo_usuario');
+    }
+
+    /**
+     * Relación con estado de usuario
+     */
+    public function estado(): BelongsTo
+    {
+        return $this->belongsTo(EstadoUsuario::class, 'id_estado');
+    }
+
+    /**
+     * Relación con perfil de docente
+     */
+    public function docente(): HasOne
+    {
+        return $this->hasOne(Docente::class, 'id_usuario');
+    }
+
+    /**
+     * Relación con perfil de estudiante
+     */
+    public function estudiante(): HasOne
+    {
+        return $this->hasOne(Estudiante::class, 'id_usuario');
+    }
+
+    /**
+     * Relación con notificaciones
+     */
+    public function notificaciones(): HasMany
+    {
+        return $this->hasMany(Notificacion::class, 'id_usuario');
+    }
+
+    // ==========================================
+    // MÉTODOS DE VERIFICACIÓN DE ROLES
+    // ==========================================
+
+    /**
+     * Verifica si el usuario es docente
+     */
+    public function esDocente(): bool
+    {
+        return $this->tipoUsuario && $this->tipoUsuario->nombre === 'docente';
+    }
+
+    /**
+     * Verifica si el usuario es estudiante
+     */
+    public function esEstudiante(): bool
+    {
+        return $this->tipoUsuario && $this->tipoUsuario->nombre === 'estudiante';
+    }
+
+    /**
+     * Verifica si el usuario es administrador
+     */
+    public function esAdministrador(): bool
+    {
+        return $this->tipoUsuario && $this->tipoUsuario->nombre === 'administrador';
+    }
+
+    // ==========================================
+    // MÉTODOS DE CONVENIENCIA
+    // ==========================================
+
+    /**
+     * Obtiene las iniciales del usuario
+     */
+    public function getInicialesAttribute(): string
+    {
+        $nombres = explode(' ', $this->nombre);
+        $iniciales = '';
+        foreach ($nombres as $nombre) {
+            if (!empty($nombre)) {
+                $iniciales .= strtoupper(substr($nombre, 0, 1));
+            }
+        }
+        return substr($iniciales, 0, 2);
+    }
+
+    /**
+     * Verifica si el usuario está activo
+     */
+    public function estaActivo(): bool
+    {
+        return !$this->eliminado && $this->estado && $this->estado->nombre === 'activo';
+    }
+
+    /**
+     * Obtiene el avatar del usuario o un placeholder
+     */
+    public function getAvatarUrlAttribute(): string
+    {
+        if ($this->avatar) {
+            return asset('storage/' . $this->avatar);
+        }
+        
+        return "https://ui-avatars.com/api/?name=" . urlencode($this->nombre) . "&size=128&background=6366f1&color=fff";
+    }
+
+    /**
+     * Actualiza el último acceso
+     */
+    public function actualizarUltimoAcceso(): void
+    {
+        $this->update(['ultimo_acceso' => now()]);
+    }
+
+    // ==========================================
+    // MÉTODOS ESPECÍFICOS PARA DOCENTES
+    // ==========================================
+
+    /**
+     * Obtiene todas las clases del docente
+     */
+    public function misClases()
+    {
+        if (!$this->esDocente()) {
+            return collect();
+        }
+
+        return $this->docente->clases()->with([
+            'inscripciones.estudiante.usuario',
+            'actividades',
+            'personajes'
+        ])->get();
+    }
+
+    /**
+     * Verifica si el docente puede gestionar una clase
+     */
+    public function puedeGestionarClase(Clase $clase): bool
+    {
+        return $this->esDocente() && $this->docente && $clase->id_docente === $this->docente->id;
+    }
+
+    // ==========================================
+    // MÉTODOS ESPECÍFICOS PARA ESTUDIANTES
+    // ==========================================
+
+    /**
+     * Obtiene las clases activas del estudiante
+     */
+    public function clasesActivas()
+    {
+        if (!$this->esEstudiante()) {
+            return collect();
+        }
+
+        return $this->estudiante->clases()->wherePivot('activo', true)->get();
+    }
+
+    /**
+     * Verifica si el estudiante está inscrito en una clase
+     */
+    public function estaInscritoEnClase(Clase $clase): bool
+    {
+        if (!$this->esEstudiante()) {
+            return false;
+        }
+
+        return $this->estudiante->inscripciones()
+            ->where('id_clase', $clase->id)
+            ->where('activo', true)
+            ->exists();
+    }
+
+    /**
+     * Obtiene el personaje del estudiante en una clase específica
+     */
+    public function personajeEnClase(Clase $clase): ?Personaje
+    {
+        if (!$this->esEstudiante()) {
+            return null;
+        }
+
+        return $this->estudiante->personajes()
+            ->where('id_clase', $clase->id)
+            ->first();
+    }
+
+    // ==========================================
+    // SCOPES
+    // ==========================================
+
+    /**
+     * Scope para usuarios activos
+     */
+    public function scopeActivos($query)
+    {
+        return $query->where('eliminado', false);
+    }
+
+    /**
+     * Scope para docentes
+     */
+    public function scopeDocentes($query)
+    {
+        return $query->whereHas('tipoUsuario', function ($q) {
+            $q->where('nombre', 'docente');
+        });
+    }
+
+    /**
+     * Scope para estudiantes
+     */
+    public function scopeEstudiantes($query)
+    {
+        return $query->whereHas('tipoUsuario', function ($q) {
+            $q->where('nombre', 'estudiante');
+        });
+    }
+
+    // ==========================================
+    // MÉTODOS PARA AUTENTICACIÓN
+    // ==========================================
+
+    /**
+     * Obtiene el campo de contraseña para autenticación
      */
     public function getAuthPassword()
     {
@@ -55,76 +278,26 @@ class Usuario extends Authenticatable
     }
 
     /**
-     * Get the column name for the "remember me" token.
+     * Obtiene el campo de email para notificaciones
      */
-    public function getRememberTokenName()
-    {
-        return 'remember_token';
-    }
-
-    /**
-     * Get the identifier that will be stored in the subject claim of the JWT.
-     */
-    public function getAuthIdentifierName()
-    {
-        return 'correo';
-    }
-
-    /**
-     * Get the unique identifier for the user.
-     */
-    public function getAuthIdentifier()
+    public function getEmailForVerification()
     {
         return $this->correo;
     }
 
     /**
-     * Get the email attribute for password resets.
+     * Obtiene el nombre del campo de email
      */
-    public function getEmailForPasswordReset()
+    public function getEmailAttribute()
     {
         return $this->correo;
     }
 
-    // ===== RELACIONES =====
-    public function tipoUsuario()
+    /**
+     * Obtiene el nombre del campo de contraseña
+     */
+    public function getPasswordAttribute()
     {
-        return $this->belongsTo(TipoUsuario::class, 'id_tipo_usuario');
-    }
-
-    public function estado()
-    {
-        return $this->belongsTo(EstadoUsuario::class, 'id_estado');
-    }
-
-    public function docente()
-    {
-        return $this->hasOne(Docente::class, 'id_usuario');
-    }
-
-    public function estudiante()
-    {
-        return $this->hasOne(Estudiante::class, 'id_usuario');
-    }
-
-    // ===== MÉTODOS DE UTILIDAD =====
-    public function esDocente(): bool
-    {
-        return $this->id_tipo_usuario === 1;
-    }
-
-    public function esEstudiante(): bool
-    {
-        return $this->id_tipo_usuario === 2;
-    }
-
-    public function nombreCompleto(): string
-    {
-        return $this->nombre . ' ' . $this->apellido;
-    }
-
-    public function estaActivo(): bool
-    {
-        return $this->id_estado === 1;
+        return $this->contraseña_hash;
     }
 }
