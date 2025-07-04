@@ -23,14 +23,10 @@ class ProfesorDashboardController extends Controller
             abort(403, 'Acceso denegado');
         }
 
-        // Obtener clases del profesor con estudiantes
-        $clases = Clase::where('docente_id', $profesor->id)
-            ->with(['estudiantes' => function($query) {
-                $query->wherePivot('activo', true);
-            }])
-            ->withCount(['estudiantes as total_estudiantes' => function($query) {
-                $query->wherePivot('activo', true);
-            }])
+        // Obtener clases del profesor con estudiantes - CORREGIDO: usar id_docente
+        $clases = Clase::where('id_docente', $profesor->id)
+            ->with(['estudiantes'])
+            ->withCount('estudiantes as total_estudiantes')
             ->orderBy('created_at', 'desc')
             ->get()
             ->map(function($clase) {
@@ -71,8 +67,9 @@ class ProfesorDashboardController extends Controller
     /**
      * Crear nueva clase
      */
-    public function crearClase(Request $request)
-    {
+   public function crearClase(Request $request)
+{
+    try {
         $request->validate([
             'nombre' => 'required|string|max:255',
             'descripcion' => 'nullable|string|max:1000',
@@ -82,13 +79,24 @@ class ProfesorDashboardController extends Controller
             'seccion' => 'nullable|string|max:10'
         ]);
 
-        $codigo = Clase::generarCodigoUnico();
+        // Debug: Verificar que el método existe
+        if (!method_exists(Clase::class, 'generarCodigoUnico')) {
+            return response()->json([
+                'success' => false,
+                'message' => 'El método generarCodigoUnico no existe en el modelo Clase'
+            ], 500);
+        }
 
-        $clase = Clase::create([
+        $codigo = Clase::generarCodigoUnico();
+        
+        // Debug: Verificar que se generó el código
+        \Log::info('Código generado: ' . $codigo);
+
+        $datosClase = [
             'nombre' => $request->nombre,
             'descripcion' => $request->descripcion,
             'codigo' => $codigo,
-            'docente_id' => Auth::id(),
+            'id_docente' => Auth::id(),
             'fecha_inicio' => $request->fecha_inicio,
             'fecha_fin' => $request->fecha_fin,
             'grado' => $request->grado,
@@ -100,7 +108,15 @@ class ProfesorDashboardController extends Controller
                 'modo_competitivo' => false,
                 'sistema_puntos' => true
             ]
-        ]);
+        ];
+
+        // Debug: Log de los datos antes de crear
+        \Log::info('Datos para crear clase:', $datosClase);
+
+        $clase = Clase::create($datosClase);
+
+        // Debug: Verificar que se creó correctamente
+        \Log::info('Clase creada con ID: ' . $clase->id);
 
         return response()->json([
             'success' => true,
@@ -113,25 +129,23 @@ class ProfesorDashboardController extends Controller
                 'fecha_fin' => $clase->fecha_fin->format('Y-m-d'),
                 'total_estudiantes' => 0,
                 'activa' => true,
-                'progreso' => $clase->obtenerProgreso(),
+                'progreso' => method_exists($clase, 'obtenerProgreso') ? $clase->obtenerProgreso() : 0,
                 'puede_seleccionar' => false
             ]
         ]);
-    }
-
+    }}
     /**
      * Ver detalles de una clase específica
      */
     public function verClase(Clase $clase)
     {
-        // Verificar que la clase pertenece al profesor
-        if ($clase->docente_id !== Auth::id()) {
+        // Verificar que la clase pertenece al profesor - CORREGIDO: usar id_docente
+        if ($clase->id_docente !== Auth::id()) {
             abort(403, 'No tienes acceso a esta clase');
         }
 
         $clase->load(['estudiantes' => function($query) {
-            $query->wherePivot('activo', true)
-                  ->orderBy('nombre');
+            $query->orderBy('nombre');
         }]);
 
         $estudiantes = $clase->estudiantes->map(function($estudiante) {
@@ -139,7 +153,7 @@ class ProfesorDashboardController extends Controller
                 'id' => $estudiante->id,
                 'nombre' => $estudiante->nombre,
                 'correo' => $estudiante->correo,
-                'fecha_inscripcion' => $estudiante->pivot->fecha_inscripcion
+                'fecha_inscripcion' => $estudiante->pivot->created_at ?? now()
             ];
         });
 
@@ -168,8 +182,8 @@ class ProfesorDashboardController extends Controller
             'codigo_estudiante' => 'required|string'
         ]);
 
-        // Verificar que la clase pertenece al profesor
-        if ($clase->docente_id !== Auth::id()) {
+        // Verificar que la clase pertenece al profesor - CORREGIDO: usar id_docente
+        if ($clase->id_docente !== Auth::id()) {
             abort(403, 'No tienes acceso a esta clase');
         }
 
@@ -215,8 +229,8 @@ class ProfesorDashboardController extends Controller
      */
     public function seleccionarEstudianteAleatorio(Clase $clase)
     {
-        // Verificar que la clase pertenece al profesor
-        if ($clase->docente_id !== Auth::id()) {
+        // Verificar que la clase pertenece al profesor - CORREGIDO: usar id_docente
+        if ($clase->id_docente !== Auth::id()) {
             abort(403, 'No tienes acceso a esta clase');
         }
 
@@ -228,9 +242,6 @@ class ProfesorDashboardController extends Controller
                 'message' => 'No hay estudiantes disponibles en esta clase'
             ], 404);
         }
-
-        // Registrar la selección (opcional - para estadísticas)
-        // Puedes crear una tabla para llevar registro de las selecciones
 
         return response()->json([
             'success' => true,
@@ -247,8 +258,8 @@ class ProfesorDashboardController extends Controller
      */
     public function removerEstudiante(Clase $clase, Usuario $estudiante)
     {
-        // Verificar que la clase pertenece al profesor
-        if ($clase->docente_id !== Auth::id()) {
+        // Verificar que la clase pertenece al profesor - CORREGIDO: usar id_docente
+        if ($clase->id_docente !== Auth::id()) {
             abort(403, 'No tienes acceso a esta clase');
         }
 
@@ -282,8 +293,8 @@ class ProfesorDashboardController extends Controller
             'activa' => 'boolean'
         ]);
 
-        // Verificar que la clase pertenece al profesor
-        if ($clase->docente_id !== Auth::id()) {
+        // Verificar que la clase pertenece al profesor - CORREGIDO: usar id_docente
+        if ($clase->id_docente !== Auth::id()) {
             abort(403, 'No tienes acceso a esta clase');
         }
 
