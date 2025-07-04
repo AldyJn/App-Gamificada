@@ -28,7 +28,7 @@
       </div>
 
       <!-- Formulario de login -->
-      <div class="cosmic-card" v-motion-slide-visible-bottom>
+      <div class="cosmic-card">
         <div class="cosmic-card-content">
           
           <!-- Indicador de estado -->
@@ -172,7 +172,7 @@
             <div class="text-center space-y-3">
               <p class="text-sm text-gray-400">
                 ¿Nuevo en la Academia?
-                <Link :href="route('register')" class="cosmic-link">
+                <Link href="/register" class="cosmic-link">
                   Crear cuenta de Guardián
                 </Link>
               </p>
@@ -303,7 +303,7 @@ const handleLogin = () => {
   isLoading.value = true
   form.remember = rememberMe.value
 
-  form.post(route('login'), {
+  form.post('/login', {
     onStart: () => {
       isLoading.value = true
     },
